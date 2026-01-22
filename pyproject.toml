@@ -2,11 +2,25 @@
 name = "zanbergify"
 version = "0.1.0"
 description = "A sample Python project"
-requires-python = ">=3.9"
-dependencies = []
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "opencv-python",
+    "numpy",
+    "rembg[cpu]",
+    "pillow",
+    "pymatting>=1.1.12",
+    "numba>=0.59.0",
+]
+
+[tool.uv]
+override-dependencies = [
+    "numba>=0.59.0",
+    "pymatting>=1.1.12",
+]
 
 [project.scripts]
 zanbergify = "zanbergify.main:main"
+posterize = "zanbergify.posterize:main"
 
 [build-system]
 requires = ["hatchling"]
