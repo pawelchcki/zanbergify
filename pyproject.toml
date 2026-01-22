@@ -1,0 +1,13 @@
+[project]
+name = "zanbergify"
+version = "0.1.0"
+description = "A sample Python project"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+zanbergify = "zanbergify.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
