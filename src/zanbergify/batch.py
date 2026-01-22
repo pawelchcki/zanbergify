@@ -4,18 +4,29 @@ import sys
 from pathlib import Path
 
 from zanbergify.posterize import load_and_prepare_image, apply_posterize
+from zanbergify.painted import load_and_prepare_image_painted, apply_painted_posterize
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
-# Threshold presets: (name, thresh_low, thresh_high)
-THRESHOLD_PRESETS = [
+# Posterize threshold presets: (name, thresh_low, thresh_high)
+POSTERIZE_PRESETS = [
     ("dark", 60, 130),      # More shadows, dramatic look
     ("balanced", 90, 165),  # Default balanced look
     ("bright", 120, 190),   # More highlights, lighter look
     ("contrast", 70, 180),  # High contrast, less midtones
     ("soft", 100, 150),     # More midtones, softer look
 ]
+
+# Painted presets: (name, thresh_low, thresh_high, mean_shift_sp, mean_shift_sr)
+PAINTED_PRESETS = [
+    ("painted_smooth", 90, 165, 25, 50),   # Smooth painted look
+    ("painted_detail", 90, 165, 15, 35),   # More detail preserved
+    ("painted_abstract", 90, 165, 35, 60), # More abstract/flat
+]
+
+# All preset names for filtering generated files
+ALL_PRESET_NAMES = [p[0] for p in POSTERIZE_PRESETS] + [p[0] for p in PAINTED_PRESETS]
 
 
 def get_source_files() -> list[Path]:
@@ -56,8 +67,8 @@ def get_output_path(input_path: Path, output_dir: Path, preset_name: str) -> Pat
 def is_generated_file(path: Path) -> bool:
     """Check if file is a generated posterized image."""
     stem = path.stem
-    # Check for new preset suffixes
-    if any(stem.endswith(f"_{preset[0]}") for preset in THRESHOLD_PRESETS):
+    # Check for preset suffixes
+    if any(stem.endswith(f"_{name}") for name in ALL_PRESET_NAMES):
         return True
     # Check for old _posterized suffix
     if stem.endswith("_posterized"):
@@ -66,7 +77,7 @@ def is_generated_file(path: Path) -> bool:
 
 
 def process_batch(work_folder: Path | None = None, output_folder: Path | None = None):
-    """Process all images in work_folder with multiple threshold presets."""
+    """Process all images in work_folder with multiple algorithms and presets."""
     if work_folder is None:
         project_root = Path(__file__).parent.parent.parent
         work_folder = project_root / "work_folder"
@@ -96,41 +107,65 @@ def process_batch(work_folder: Path | None = None, output_folder: Path | None = 
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
+    total_presets = len(POSTERIZE_PRESETS) + len(PAINTED_PRESETS)
     processed = 0
     skipped = 0
 
     for input_path in image_files:
-        # Check which presets need processing
-        presets_to_process = []
-        for preset_name, thresh_low, thresh_high in THRESHOLD_PRESETS:
+        # === POSTERIZE ALGORITHM ===
+        posterize_to_process = []
+        for preset_name, thresh_low, thresh_high in POSTERIZE_PRESETS:
             output_path = get_output_path(input_path, output_folder, preset_name)
             if needs_processing(input_path, output_path, source_mtime):
-                presets_to_process.append((preset_name, thresh_low, thresh_high, output_path))
+                posterize_to_process.append((preset_name, thresh_low, thresh_high, output_path))
 
-        if not presets_to_process:
-            print(f"Skipping (all up to date): {input_path.name}")
-            skipped += len(THRESHOLD_PRESETS)
-            continue
+        if posterize_to_process:
+            print(f"\n[Posterize] Loading: {input_path.name}")
+            result = load_and_prepare_image(str(input_path))
+            if result is not None:
+                gray_blurred, alpha, img_bgr = result
+                for preset_name, thresh_low, thresh_high, output_path in posterize_to_process:
+                    print(f"  Generating {preset_name} (low={thresh_low}, high={thresh_high})...")
+                    apply_posterize(gray_blurred, alpha, img_bgr, str(output_path), thresh_low, thresh_high)
+                    processed += 1
+        else:
+            print(f"[Posterize] Skipping (up to date): {input_path.name}")
 
-        # Load and prepare image once
-        print(f"\nLoading: {input_path.name}")
-        result = load_and_prepare_image(str(input_path))
-        if result is None:
-            continue
+        skipped += len(POSTERIZE_PRESETS) - len(posterize_to_process)
 
-        gray_blurred, alpha, img_bgr = result
+        # === PAINTED ALGORITHM ===
+        painted_to_process = []
+        for preset_name, thresh_low, thresh_high, sp, sr in PAINTED_PRESETS:
+            output_path = get_output_path(input_path, output_folder, preset_name)
+            if needs_processing(input_path, output_path, source_mtime):
+                painted_to_process.append((preset_name, thresh_low, thresh_high, sp, sr, output_path))
 
-        # Generate all needed presets
-        for preset_name, thresh_low, thresh_high, output_path in presets_to_process:
-            print(f"  Generating {preset_name} (low={thresh_low}, high={thresh_high})...")
-            apply_posterize(gray_blurred, alpha, img_bgr, str(output_path), thresh_low, thresh_high)
-            processed += 1
+        if painted_to_process:
+            # Group by mean shift params to avoid redundant processing
+            by_params: dict[tuple[int, int], list] = {}
+            for preset_name, thresh_low, thresh_high, sp, sr, output_path in painted_to_process:
+                key = (sp, sr)
+                if key not in by_params:
+                    by_params[key] = []
+                by_params[key].append((preset_name, thresh_low, thresh_high, output_path))
 
-        # Count skipped presets for this image
-        skipped += len(THRESHOLD_PRESETS) - len(presets_to_process)
+            for (sp, sr), presets in by_params.items():
+                print(f"\n[Painted] Loading: {input_path.name} (sp={sp}, sr={sr})")
+                result = load_and_prepare_image_painted(str(input_path), sp, sr)
+                if result is not None:
+                    gray, alpha_eroded, img_bgr = result
+                    for preset_name, thresh_low, thresh_high, output_path in presets:
+                        print(f"  Generating {preset_name} (low={thresh_low}, high={thresh_high})...")
+                        apply_painted_posterize(gray, alpha_eroded, img_bgr, str(output_path), thresh_low, thresh_high)
+                        processed += 1
+        else:
+            print(f"[Painted] Skipping (up to date): {input_path.name}")
+
+        skipped += len(PAINTED_PRESETS) - len(painted_to_process)
 
     print(f"\nDone! Generated: {processed}, Skipped: {skipped}")
-    print(f"Presets: {', '.join(p[0] for p in THRESHOLD_PRESETS)}")
+    print(f"Posterize presets: {', '.join(p[0] for p in POSTERIZE_PRESETS)}")
+    print(f"Painted presets: {', '.join(p[0] for p in PAINTED_PRESETS)}")
 
 
 def main():
