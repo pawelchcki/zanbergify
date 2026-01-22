@@ -21,6 +21,7 @@ override-dependencies = [
 [project.scripts]
 zanbergify = "zanbergify.main:main"
 posterize = "zanbergify.posterize:main"
+posterize-batch = "zanbergify.batch:main"
 
 [build-system]
 requires = ["hatchling"]
