@@ -37,3 +37,8 @@ Thumbs.db
 
 # Project
 work_folder/
+output/
+output_rs/
+
+# Rust
+rust/target/

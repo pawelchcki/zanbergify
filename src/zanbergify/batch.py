@@ -5,6 +5,7 @@ from pathlib import Path
 
 from zanbergify.posterize import load_and_prepare_image, apply_posterize
 from zanbergify.painted import load_and_prepare_image_painted, apply_painted_posterize
+from zanbergify.detailed import load_and_prepare_image_detailed, apply_detailed_posterize
 
 # Supported image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -25,8 +26,19 @@ PAINTED_PRESETS = [
     ("painted_abstract", 90, 165, 35, 60), # More abstract/flat
 ]
 
+# Detailed presets: (name, thresh_low, thresh_high, clip_limit, tile_size)
+DETAILED_PRESETS = [
+    ("detailed_standard", 80, 160, 3.0, 8),   # Standard CLAHE enhancement
+    ("detailed_strong", 70, 150, 4.0, 8),     # Stronger contrast enhancement
+    ("detailed_fine", 80, 160, 2.5, 4),       # Finer detail preservation
+]
+
 # All preset names for filtering generated files
-ALL_PRESET_NAMES = [p[0] for p in POSTERIZE_PRESETS] + [p[0] for p in PAINTED_PRESETS]
+ALL_PRESET_NAMES = (
+    [p[0] for p in POSTERIZE_PRESETS] +
+    [p[0] for p in PAINTED_PRESETS] +
+    [p[0] for p in DETAILED_PRESETS]
+)
 
 
 def get_source_files() -> list[Path]:
@@ -83,7 +95,7 @@ def process_batch(work_folder: Path | None = None, output_folder: Path | None = 
         work_folder = project_root / "work_folder"
 
     if output_folder is None:
-        output_folder = work_folder
+        output_folder = work_folder / "output"
 
     if not work_folder.exists():
         print(f"Creating work folder: {work_folder}")
@@ -107,7 +119,7 @@ def process_batch(work_folder: Path | None = None, output_folder: Path | None = 
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    total_presets = len(POSTERIZE_PRESETS) + len(PAINTED_PRESETS)
+    total_presets = len(POSTERIZE_PRESETS) + len(PAINTED_PRESETS) + len(DETAILED_PRESETS)
     processed = 0
     skipped = 0
 
@@ -163,9 +175,40 @@ def process_batch(work_folder: Path | None = None, output_folder: Path | None = 
 
         skipped += len(PAINTED_PRESETS) - len(painted_to_process)
 
+        # === DETAILED ALGORITHM ===
+        detailed_to_process = []
+        for preset_name, thresh_low, thresh_high, clip_limit, tile_size in DETAILED_PRESETS:
+            output_path = get_output_path(input_path, output_folder, preset_name)
+            if needs_processing(input_path, output_path, source_mtime):
+                detailed_to_process.append((preset_name, thresh_low, thresh_high, clip_limit, tile_size, output_path))
+
+        if detailed_to_process:
+            # Group by CLAHE params to avoid redundant processing
+            by_params: dict[tuple[float, int], list] = {}
+            for preset_name, thresh_low, thresh_high, clip_limit, tile_size, output_path in detailed_to_process:
+                key = (clip_limit, tile_size)
+                if key not in by_params:
+                    by_params[key] = []
+                by_params[key].append((preset_name, thresh_low, thresh_high, output_path))
+
+            for (clip_limit, tile_size), presets in by_params.items():
+                print(f"\n[Detailed] Loading: {input_path.name} (clip={clip_limit}, tile={tile_size})")
+                result = load_and_prepare_image_detailed(str(input_path), clip_limit, tile_size)
+                if result is not None:
+                    enhanced_gray, alpha, img_bgr = result
+                    for preset_name, thresh_low, thresh_high, output_path in presets:
+                        print(f"  Generating {preset_name} (low={thresh_low}, high={thresh_high})...")
+                        apply_detailed_posterize(enhanced_gray, alpha, img_bgr, str(output_path), thresh_low, thresh_high)
+                        processed += 1
+        else:
+            print(f"[Detailed] Skipping (up to date): {input_path.name}")
+
+        skipped += len(DETAILED_PRESETS) - len(detailed_to_process)
+
     print(f"\nDone! Generated: {processed}, Skipped: {skipped}")
     print(f"Posterize presets: {', '.join(p[0] for p in POSTERIZE_PRESETS)}")
     print(f"Painted presets: {', '.join(p[0] for p in PAINTED_PRESETS)}")
+    print(f"Detailed presets: {', '.join(p[0] for p in DETAILED_PRESETS)}")
 
 
 def main():

@@ -22,6 +22,7 @@ override-dependencies = [
 zanbergify = "zanbergify.main:main"
 posterize = "zanbergify.posterize:main"
 painted = "zanbergify.painted:main"
+detailed = "zanbergify.detailed:main"
 posterize-batch = "zanbergify.batch:main"
 
 [build-system]

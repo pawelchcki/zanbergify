@@ -14,6 +14,19 @@ DEFAULT_THRESH_LOW = 90
 DEFAULT_THRESH_HIGH = 165
 
 
+def prepare_from_rgba(img_rgba: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Prepare already background-removed RGBA image for posterization.
+
+    Returns tuple of (gray_blurred, alpha, img_bgr).
+    """
+    alpha = img_rgba[:, :, 3]
+    img_bgr = cv2.cvtColor(img_rgba, cv2.COLOR_RGBA2BGR)
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    gray_blurred = cv2.GaussianBlur(gray, (9, 9), 0)
+
+    return gray_blurred, alpha, img_bgr
+
+
 def load_and_prepare_image(input_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """Load image, remove background, and prepare for posterization.
 
@@ -28,13 +41,7 @@ def load_and_prepare_image(input_path: str) -> tuple[np.ndarray, np.ndarray, np.
         print(f"Error: Could not find file '{input_path}'")
         return None
 
-    img_rgba = np.array(pil_img)
-    alpha = img_rgba[:, :, 3]
-    img_bgr = cv2.cvtColor(img_rgba, cv2.COLOR_RGBA2BGR)
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    gray_blurred = cv2.GaussianBlur(gray, (9, 9), 0)
-
-    return gray_blurred, alpha, img_bgr
+    return prepare_from_rgba(np.array(pil_img))
 
 
 def apply_posterize(
