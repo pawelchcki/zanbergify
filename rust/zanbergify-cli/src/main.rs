@@ -313,20 +313,20 @@ fn cmd_batch(
 
     let presets = Arc::new(presets);
     let mut total_processed = 0usize;
-    let mut total_skipped = 0usize;
     let mut all_errors: Vec<String> = Vec::new();
 
-    // Process each image: remove background once, then apply all presets
+    // Pre-compute pending work per image and sort: most pending first
+    let mut image_work: Vec<(PathBuf, Vec<(PathBuf, String, DetailedParams)>)> = Vec::new();
+    let mut pre_skipped = 0usize;
+
     for image_path in &images {
         let stem = image_path.file_stem().unwrap().to_str().unwrap();
 
-        // Determine which presets need processing for this image
-        let pending_presets: Vec<(PathBuf, String, DetailedParams)> = presets
+        let pending: Vec<(PathBuf, String, DetailedParams)> = presets
             .iter()
             .filter_map(|(preset_name, params)| {
                 let output_path = output_dir.join(format!("{}_{}.png", stem, preset_name));
 
-                // Skip if output is newer than input (unless --force)
                 if !force && output_path.exists() {
                     if let (Ok(in_meta), Ok(out_meta)) =
                         (image_path.metadata(), output_path.metadata())
@@ -335,7 +335,6 @@ fn cmd_batch(
                             (in_meta.modified(), out_meta.modified())
                         {
                             if out_time > in_time {
-                                eprintln!("Skipping (up-to-date): {}", output_path.display());
                                 return None;
                             }
                         }
@@ -346,11 +345,28 @@ fn cmd_batch(
             })
             .collect();
 
-        total_skipped += presets.len() - pending_presets.len();
+        pre_skipped += presets.len() - pending.len();
 
-        if pending_presets.is_empty() {
-            continue;
+        if !pending.is_empty() {
+            image_work.push((image_path.clone(), pending));
         }
+    }
+
+    // Sort: images with most pending presets first (new images before partially done ones)
+    image_work.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+
+    let total_skipped = pre_skipped;
+
+    let total_pending: usize = image_work.iter().map(|(_, p)| p.len()).sum();
+    eprintln!(
+        "To process: {} images ({} outputs), skipping {} up-to-date",
+        image_work.len(),
+        total_pending,
+        total_skipped
+    );
+
+    // Process each image: remove background once, then apply all presets
+    for (image_path, pending_presets) in &image_work {
 
         // Load image and remove background once
         eprintln!(

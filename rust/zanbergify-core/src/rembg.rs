@@ -277,8 +277,8 @@ pub fn find_model_path(
 
     // 4. Fallback: try any known model file
     let all_filenames = [
-        "BiRefNet-general-epoch_244.onnx",
         "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+        "BiRefNet-general-epoch_244.onnx",
         "u2net.onnx",
         "isnet-general-use.onnx",
     ];
@@ -307,8 +307,8 @@ pub fn find_model_path(
 fn model_filenames(model_type: ModelType) -> Vec<&'static str> {
     match model_type {
         ModelType::BiRefNet => vec![
-            "BiRefNet-general-epoch_244.onnx",
             "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
+            "BiRefNet-general-epoch_244.onnx",
         ],
         ModelType::U2Net => vec!["u2net.onnx"],
         ModelType::ISNet => vec!["isnet-general-use.onnx"],
