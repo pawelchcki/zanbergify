@@ -1,0 +1,10 @@
+[package]
+name = "zanbergify-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zanbergify-core = { path = "../zanbergify-core" }
+clap = { version = "4", features = ["derive"] }
+rayon = "1.10"
+image = "0.25"
