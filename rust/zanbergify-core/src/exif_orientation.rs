@@ -36,7 +36,7 @@ pub fn read_exif_orientation_from_bytes(bytes: &[u8]) -> Option<u32> {
 /// If orientation cannot be read, returns the image unchanged.
 pub fn apply_exif_orientation(img: DynamicImage, path: &Path) -> DynamicImage {
     let orientation = match read_exif_orientation(path) {
-        Some(o) if o >= 2 && o <= 8 => o,
+        Some(o) if (2..=8).contains(&o) => o,
         _ => return img,
     };
 
@@ -47,7 +47,7 @@ pub fn apply_exif_orientation(img: DynamicImage, path: &Path) -> DynamicImage {
 /// If orientation cannot be read, returns the image unchanged.
 pub fn apply_exif_orientation_from_bytes(img: DynamicImage, bytes: &[u8]) -> DynamicImage {
     let orientation = match read_exif_orientation_from_bytes(bytes) {
-        Some(o) if o >= 2 && o <= 8 => o,
+        Some(o) if (2..=8).contains(&o) => o,
         _ => return img,
     };
 

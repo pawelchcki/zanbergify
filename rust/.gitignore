@@ -1,4 +1,10 @@
-rust/zanbergify-wasm/www/models/*.onnx
+# Build artifacts
+target/
+pkg/
+dist/
 
 # Large ONNX models should not be committed
+**/*.onnx
+
+# Model directories
 zanbergify-wasm/www/models/*.onnx

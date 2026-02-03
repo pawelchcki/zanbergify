@@ -128,12 +128,12 @@ fn clip_histogram(hist: &mut [u32; 256], limit: u32) {
 
         // Distribute remainder one per bin, respecting limit
         let mut distributed = 0usize;
-        for i in 0..256 {
+        for h in hist.iter_mut() {
             if distributed >= remainder {
                 break;
             }
-            if hist[i] < limit {
-                hist[i] += 1;
+            if *h < limit {
+                *h += 1;
                 distributed += 1;
             }
         }

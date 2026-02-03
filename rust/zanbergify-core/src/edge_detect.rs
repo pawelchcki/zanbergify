@@ -130,8 +130,8 @@ pub fn overlay_edges(rgb: &mut [u8], edges: &[bool], alpha: f32, edge_color: [u8
     let a = alpha.clamp(0.0, 1.0);
     let inv_a = 1.0 - a;
 
-    for i in 0..pixel_count {
-        if edges[i] {
+    for (i, &is_edge) in edges.iter().enumerate() {
+        if is_edge {
             let idx = i * 3;
             rgb[idx] = (edge_color[0] as f32 * a + rgb[idx] as f32 * inv_a + 0.5) as u8;
             rgb[idx + 1] = (edge_color[1] as f32 * a + rgb[idx + 1] as f32 * inv_a + 0.5) as u8;
