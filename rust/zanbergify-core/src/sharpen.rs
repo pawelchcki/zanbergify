@@ -5,7 +5,6 @@
 ///  0  -1   0
 /// ```
 /// Uses BORDER_REFLECT_101 for edge pixels (matching OpenCV default).
-
 pub fn sharpen(gray: &[u8], width: u32, height: u32) -> Vec<u8> {
     let w = width as i32;
     let h = height as i32;

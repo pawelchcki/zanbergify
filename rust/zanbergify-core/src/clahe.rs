@@ -4,7 +4,6 @@
 /// - Divide image into tile_size x tile_size grid
 /// - Per-tile histogram with clip limit and iterative redistribution
 /// - Bilinear interpolation between tile LUTs
-
 pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u32) -> Vec<u8> {
     let w = width as usize;
     let h = height as usize;
@@ -14,8 +13,8 @@ pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u
     let tiles_y = tile_size as usize;
 
     // Tile dimensions (may not divide evenly - handle with care)
-    let tile_w = (w + tiles_x - 1) / tiles_x;
-    let tile_h = (h + tiles_y - 1) / tiles_y;
+    let tile_w = w.div_ceil(tiles_x);
+    let tile_h = h.div_ceil(tiles_y);
 
     // Compute LUT for each tile
     let mut luts = vec![vec![0u8; 256]; tiles_x * tiles_y];
@@ -49,14 +48,14 @@ pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u
 
             let total = cdf[255];
             if total == 0 {
-                for i in 0..256 {
-                    luts[ty * tiles_x + tx][i] = i as u8;
+                for (i, lut_val) in luts[ty * tiles_x + tx].iter_mut().enumerate() {
+                    *lut_val = i as u8;
                 }
             } else {
-                for i in 0..256 {
+                for (i, &c) in cdf.iter().enumerate() {
                     // Scale CDF to [0, 255] range
                     // Match OpenCV: (cdf[i] * 255 + total/2) / total, but use scale factor
-                    let val = ((cdf[i] as f64 * 255.0) / total as f64 + 0.5) as u32;
+                    let val = ((c as f64 * 255.0) / total as f64 + 0.5) as u32;
                     luts[ty * tiles_x + tx][i] = val.min(255) as u8;
                 }
             }
@@ -105,10 +104,10 @@ fn clip_histogram(hist: &mut [u32; 256], limit: u32) {
     // Iterative clipping - cap iterations to avoid infinite loops
     for _ in 0..256 {
         let mut excess = 0u32;
-        for i in 0..256 {
-            if hist[i] > limit {
-                excess += hist[i] - limit;
-                hist[i] = limit;
+        for h in hist.iter_mut() {
+            if *h > limit {
+                excess += *h - limit;
+                *h = limit;
             }
         }
 
@@ -121,19 +120,19 @@ fn clip_histogram(hist: &mut [u32; 256], limit: u32) {
         let remainder = (excess % 256) as usize;
 
         if avg_inc > 0 {
-            for i in 0..256 {
-                hist[i] = (hist[i] + avg_inc).min(limit);
+            for h in hist.iter_mut() {
+                *h = (*h + avg_inc).min(limit);
             }
         }
 
         // Distribute remainder one per bin, respecting limit
         let mut distributed = 0usize;
-        for i in 0..256 {
+        for h in hist.iter_mut() {
             if distributed >= remainder {
                 break;
             }
-            if hist[i] < limit {
-                hist[i] += 1;
+            if *h < limit {
+                *h += 1;
                 distributed += 1;
             }
         }
@@ -151,7 +150,9 @@ mod tests {
         let result = clahe(&gray, 64, 64, 4.0, 8);
         // All pixels should map to the same value
         let first = result[0];
-        assert!(result.iter().all(|&v| (v as i32 - first as i32).unsigned_abs() <= 1));
+        assert!(result
+            .iter()
+            .all(|&v| (v as i32 - first as i32).unsigned_abs() <= 1));
     }
 
     #[test]

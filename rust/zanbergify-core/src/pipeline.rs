@@ -1,6 +1,5 @@
 /// Full processing pipeline:
 /// load image -> rembg -> grayscale (BT.601) -> CLAHE -> sharpen -> posterize -> save PNG
-
 use image::{DynamicImage, GenericImageView, RgbImage};
 
 use crate::clahe::clahe;
@@ -127,7 +126,6 @@ pub fn extract_alpha(
 }
 
 /// Extract alpha channel from an image (without rembg support).
-#[cfg(not(feature = "rembg"))]
 pub fn extract_alpha_from_image(img: &DynamicImage) -> Vec<u8> {
     let (width, height) = img.dimensions();
 

@@ -308,6 +308,24 @@
                 </select>
             </div>
 
+            <div class="control-group full-width">
+                <label>
+                    <input type="checkbox" id="enableRembg" style="width: auto; cursor: pointer;">
+                    <span style="font-weight: normal;">Enable Background Removal (BiRefNet Lite - High Quality)</span>
+                </label>
+            </div>
+
+            <div id="rembgControls" style="display: none;">
+                <div id="modelStatus" style="padding: 12px; background: #580437; color: white; border-radius: 4px; font-size: 14px; text-align: center; cursor: pointer; transition: all 0.2s;">
+                    Click to load BiRefNet model (1024x1024, high quality)
+                </div>
+            </div>
+
+            <div id="rembgProgress" style="display: none; padding: 15px; background: #f9f9f9; border-radius: 4px; margin-top: 10px;">
+                <progress id="rembgProgressBar" value="0" max="100" style="width: 100%; height: 20px;"></progress>
+                <div id="rembgProgressText" style="margin-top: 8px; text-align: center; color: #666;">Loading model...</div>
+            </div>
+
             <div class="control-group">
                 <label>Auto-process:</label>
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
@@ -379,13 +397,27 @@
                 <li>Choose a preset or adjust sliders manually for custom control</li>
                 <li>The image will automatically update as you adjust sliders</li>
                 <li>Try different color palettes to change the style</li>
+                <li><strong>Optional:</strong> Enable background removal by checking the checkbox and uploading an ONNX model</li>
                 <li>Download the result using the download button</li>
             </ol>
             <p style="margin-top: 10px;">
-                <strong>Note:</strong> All processing happens in your browser using WebAssembly. No data is uploaded to any server.
+                <strong>Background Removal:</strong> When enabled, uses the bundled BiRefNet model (1024x1024, 214 MB)
+                for high-quality background removal. Processing happens in your browser using ONNX Runtime with WebGPU acceleration.
+                The model is cached after first load for instant subsequent use.
+            </p>
+            <p style="margin-top: 10px;">
+                <strong>Privacy:</strong> All processing happens in your browser using WebAssembly and ONNX Runtime.
+                No data is uploaded to any server. The model is included with the app.
+            </p>
+            <p style="margin-top: 10px;">
+                <strong>Best Performance:</strong> Use Chrome 113+ or Edge 113+ for WebGPU acceleration (2-5s processing).
+                Firefox and Safari use WASM backend (8-15s processing).
             </p>
         </div>
     </div>
+
+    <!-- ONNX Runtime Web (loaded globally) - Using latest version with WebGPU support -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.js"></script>
 
     <script type="module" src="./index.js"></script>
 </body>

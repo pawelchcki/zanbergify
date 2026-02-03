@@ -59,7 +59,11 @@ pub struct ColorPalette {
 impl ColorPalette {
     /// Create a custom color palette from hex strings.
     #[wasm_bindgen(constructor)]
-    pub fn new(bg_hex: &str, midtone_hex: &str, highlight_hex: &str) -> Result<ColorPalette, JsValue> {
+    pub fn new(
+        bg_hex: &str,
+        midtone_hex: &str,
+        highlight_hex: &str,
+    ) -> Result<ColorPalette, JsValue> {
         let bg = parse_hex_color(bg_hex)?;
         let midtone = parse_hex_color(midtone_hex)?;
         let highlight = parse_hex_color(highlight_hex)?;

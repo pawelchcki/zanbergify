@@ -4,7 +4,6 @@
 /// - U2Net (320x320, simple /255 normalization)
 /// - BiRefNet (1024x1024, ImageNet normalization, sigmoid + min-max output)
 /// - ISNet (1024x1024, ImageNet normalization, sigmoid output)
-
 use image::{DynamicImage, GenericImageView, GrayImage, RgbaImage};
 use ndarray::Array4;
 use ort::session::builder::GraphOptimizationLevel;
@@ -70,9 +69,11 @@ pub struct RembgModel {
 
 impl RembgModel {
     /// Load ONNX model from the given path with specified model type.
-    pub fn load(model_path: &Path, model_type: ModelType) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut builder = Session::builder()?
-            .with_intra_threads(4)?;
+    pub fn load(
+        model_path: &Path,
+        model_type: ModelType,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut builder = Session::builder()?.with_intra_threads(4)?;
 
         // BiRefNet models trigger a shape inference bug in ONNX Runtime 1.23.x
         // (github.com/microsoft/onnxruntime/issues/26261). Using Level1 (basic)
@@ -107,8 +108,7 @@ impl RembgModel {
         );
 
         // Normalize and convert to CHW layout (1, 3, H, W)
-        let mut input =
-            Array4::<f32>::zeros((1, 3, input_size as usize, input_size as usize));
+        let mut input = Array4::<f32>::zeros((1, 3, input_size as usize, input_size as usize));
 
         match self.model_type {
             ModelType::U2Net => {
@@ -202,12 +202,8 @@ impl RembgModel {
         }
 
         // Resize mask back to original dimensions
-        let mask_resized = image::imageops::resize(
-            &mask,
-            orig_w,
-            orig_h,
-            image::imageops::FilterType::Lanczos3,
-        );
+        let mask_resized =
+            image::imageops::resize(&mask, orig_w, orig_h, image::imageops::FilterType::Lanczos3);
 
         // Create RGBA image with alpha from mask
         let rgb_orig = img.to_rgb8();
@@ -235,6 +231,17 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
+/// Helper function to check for model files in a directory
+fn check_directory_for_models(
+    dir: &std::path::Path,
+    filenames: &[&str],
+) -> Option<std::path::PathBuf> {
+    filenames
+        .iter()
+        .map(|filename| dir.join(filename))
+        .find(|path| path.exists())
+}
+
 /// Try to find a model path, searching for the preferred model type first.
 pub fn find_model_path(
     explicit_path: Option<&Path>,
@@ -255,27 +262,30 @@ pub fn find_model_path(
         }
     }
 
-    // 3. Model-type-specific filenames in current directory and ~/.u2net/
+    // 3. xtask cache directory (~/.zanbergify/models/)
     let filenames = model_filenames(model_type);
 
-    for filename in &filenames {
-        let local = std::path::PathBuf::from(filename);
-        if local.exists() {
-            return Some(local);
+    if let Some(home) = dirs_path() {
+        let cache_dir = home.join(".zanbergify").join("models");
+        if let Some(path) = check_directory_for_models(&cache_dir, &filenames) {
+            return Some(path);
         }
     }
 
+    // 4. Legacy cache directory (~/.u2net/)
     if let Some(home) = dirs_path() {
         let cache_dir = home.join(".u2net");
-        for filename in &filenames {
-            let cached = cache_dir.join(filename);
-            if cached.exists() {
-                return Some(cached);
-            }
+        if let Some(path) = check_directory_for_models(&cache_dir, &filenames) {
+            return Some(path);
         }
     }
 
-    // 4. Fallback: try any known model file
+    // 5. Current directory
+    if let Some(path) = check_directory_for_models(&std::path::PathBuf::from("."), &filenames) {
+        return Some(path);
+    }
+
+    // 6. Fallback: try any known model file in xtask cache
     let all_filenames = [
         "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
         "BiRefNet-general-epoch_244.onnx",
@@ -283,20 +293,26 @@ pub fn find_model_path(
         "isnet-general-use.onnx",
     ];
 
+    if let Some(home) = dirs_path() {
+        let cache_dir = home.join(".zanbergify").join("models");
+        if let Some(path) = check_directory_for_models(&cache_dir, &all_filenames) {
+            return Some(path);
+        }
+    }
+
+    // 7. Fallback: try any known model file in legacy cache
+    if let Some(home) = dirs_path() {
+        let cache_dir = home.join(".u2net");
+        if let Some(path) = check_directory_for_models(&cache_dir, &all_filenames) {
+            return Some(path);
+        }
+    }
+
+    // 8. Fallback: try any known model file in current directory
     for filename in &all_filenames {
         let local = std::path::PathBuf::from(filename);
         if local.exists() {
             return Some(local);
-        }
-    }
-
-    if let Some(home) = dirs_path() {
-        let cache_dir = home.join(".u2net");
-        for filename in &all_filenames {
-            let cached = cache_dir.join(filename);
-            if cached.exists() {
-                return Some(cached);
-            }
         }
     }
 

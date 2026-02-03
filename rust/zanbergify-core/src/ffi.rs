@@ -1,10 +1,9 @@
 /// C ABI exports for shared library consumers.
-
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::path::Path;
 
-use crate::pipeline::{DetailedParams, process_file};
+use crate::pipeline::{process_file, DetailedParams};
 use crate::posterize::PALETTE_ORIGINAL;
 use crate::rembg::{ModelType, RembgModel};
 

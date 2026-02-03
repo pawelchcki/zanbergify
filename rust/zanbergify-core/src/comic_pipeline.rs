@@ -3,13 +3,12 @@
 ///
 /// Key difference from "detailed": no sharpening step (edges provide definition instead),
 /// plus bold outlines composited on top using the palette's bg color.
-
 use image::{DynamicImage, GenericImageView, RgbImage};
 
 use crate::clahe::clahe;
 use crate::edge_detect::{overlay_edges, sobel_magnitude, threshold_and_dilate};
-use crate::posterize::{posterize, ColorPalette, PALETTE_ORIGINAL};
 use crate::pipeline::rgb_to_grayscale;
+use crate::posterize::{posterize, ColorPalette, PALETTE_ORIGINAL};
 
 /// Processing parameters for the comic algorithm.
 #[derive(Debug, Clone)]

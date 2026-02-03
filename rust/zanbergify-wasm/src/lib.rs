@@ -1,11 +1,11 @@
 use wasm_bindgen::prelude::*;
 
-mod processor;
 mod params;
+mod processor;
 mod utils;
 
+pub use params::{ColorPalette, DetailedParams};
 pub use processor::ZanbergifyProcessor;
-pub use params::{DetailedParams, ColorPalette};
 
 /// Initialize the WASM module (sets up panic hook).
 #[wasm_bindgen(start)]

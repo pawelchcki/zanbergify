@@ -1,10 +1,10 @@
-use wasm_bindgen::prelude::*;
 use image::ImageFormat;
+use std::io::Cursor;
+use wasm_bindgen::prelude::*;
 use zanbergify_core::exif_orientation::apply_exif_orientation_from_bytes;
 use zanbergify_core::pipeline::{extract_alpha_from_image, process_image_with_alpha};
-use std::io::Cursor;
 
-use crate::params::{DetailedParams, ColorPalette};
+use crate::params::{ColorPalette, DetailedParams};
 
 /// Main image processor for zanbergify.
 #[wasm_bindgen]

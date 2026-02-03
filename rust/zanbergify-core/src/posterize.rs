@@ -1,11 +1,12 @@
 /// Map enhanced grayscale + alpha to 3-color RGB output.
 ///
 /// Color mapping:
+///
 /// - alpha <= 10 -> color_bg
 /// - gray < thresh_low -> color_bg
 /// - thresh_low <= gray < thresh_high -> color_midtone
 /// - gray >= thresh_high -> color_highlight
-
+///
 /// A set of three colors for posterization.
 #[derive(Debug, Clone, Copy)]
 pub struct ColorPalette {
@@ -29,56 +30,56 @@ impl ColorPalette {
         if s.len() != 6 {
             return Err(format!("Invalid hex color '{}': expected 6 hex digits", s));
         }
-        let r = u8::from_str_radix(&s[0..2], 16)
-            .map_err(|_| format!("Invalid hex color '{}'", s))?;
-        let g = u8::from_str_radix(&s[2..4], 16)
-            .map_err(|_| format!("Invalid hex color '{}'", s))?;
-        let b = u8::from_str_radix(&s[4..6], 16)
-            .map_err(|_| format!("Invalid hex color '{}'", s))?;
+        let r =
+            u8::from_str_radix(&s[0..2], 16).map_err(|_| format!("Invalid hex color '{}'", s))?;
+        let g =
+            u8::from_str_radix(&s[2..4], 16).map_err(|_| format!("Invalid hex color '{}'", s))?;
+        let b =
+            u8::from_str_radix(&s[4..6], 16).map_err(|_| format!("Invalid hex color '{}'", s))?;
         Ok([r, g, b])
     }
 }
 
 // Original palette (matching Python)
 pub const PALETTE_ORIGINAL: ColorPalette = ColorPalette::new(
-    [0, 0, 0],       // black
-    [255, 20, 147],   // deep pink / magenta
-    [255, 215, 0],    // gold / yellow
+    [0, 0, 0],      // black
+    [255, 20, 147], // deep pink / magenta
+    [255, 215, 0],  // gold / yellow
 );
 
 // Dark burgundy with white highlights
 pub const PALETTE_BURGUNDY: ColorPalette = ColorPalette::new(
     [0, 0, 0],       // black
-    [114, 5, 70],     // #720546 - dark magenta/burgundy
-    [255, 255, 255],  // white
+    [114, 5, 70],    // #720546 - dark magenta/burgundy
+    [255, 255, 255], // white
 );
 
 // Deep burgundy duo with teal complement
 pub const PALETTE_BURGUNDY_TEAL: ColorPalette = ColorPalette::new(
-    [88, 4, 55],      // #580437 - darkest burgundy
-    [114, 5, 70],     // #720546 - burgundy
-    [0, 210, 190],    // #00D2BE - teal complement
+    [88, 4, 55],   // #580437 - darkest burgundy
+    [114, 5, 70],  // #720546 - burgundy
+    [0, 210, 190], // #00D2BE - teal complement
 );
 
 // Burgundy with warm gold
 pub const PALETTE_BURGUNDY_GOLD: ColorPalette = ColorPalette::new(
-    [0, 0, 0],       // black
-    [88, 4, 55],      // #580437 - deep burgundy
-    [255, 200, 50],   // #FFC832 - warm gold
+    [0, 0, 0],      // black
+    [88, 4, 55],    // #580437 - deep burgundy
+    [255, 200, 50], // #FFC832 - warm gold
 );
 
 // Monochrome burgundy: dark bg, mid burgundy, light rose
 pub const PALETTE_ROSE: ColorPalette = ColorPalette::new(
-    [88, 4, 55],      // #580437 - deep burgundy
-    [180, 30, 100],   // #B41E64 - rose
-    [255, 220, 230],  // #FFDCE6 - light pink
+    [88, 4, 55],     // #580437 - deep burgundy
+    [180, 30, 100],  // #B41E64 - rose
+    [255, 220, 230], // #FFDCE6 - light pink
 );
 
 // Cyan and magenta (print-inspired)
 pub const PALETTE_CMYK: ColorPalette = ColorPalette::new(
-    [0, 0, 0],       // black
-    [0, 180, 220],    // #00B4DC - cyan
-    [230, 0, 120],    // #E60078 - magenta
+    [0, 0, 0],     // black
+    [0, 180, 220], // #00B4DC - cyan
+    [230, 0, 120], // #E60078 - magenta
 );
 
 pub fn named_palette(name: &str) -> Option<ColorPalette> {
@@ -94,7 +95,14 @@ pub fn named_palette(name: &str) -> Option<ColorPalette> {
 }
 
 pub fn all_palette_names() -> &'static [&'static str] {
-    &["original", "burgundy", "burgundy_teal", "burgundy_gold", "rose", "cmyk"]
+    &[
+        "original",
+        "burgundy",
+        "burgundy_teal",
+        "burgundy_gold",
+        "rose",
+        "cmyk",
+    ]
 }
 
 pub fn posterize(
@@ -113,9 +121,7 @@ pub fn posterize(
     let mut rgb = vec![0u8; len * 3];
 
     for i in 0..len {
-        let color = if alpha[i] <= 10 {
-            &palette.bg
-        } else if gray[i] < thresh_low {
+        let color = if alpha[i] <= 10 || gray[i] < thresh_low {
             &palette.bg
         } else if gray[i] < thresh_high {
             &palette.midtone
