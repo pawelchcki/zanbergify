@@ -8,6 +8,7 @@ use crate::verify::verify_model;
 use crate::wasm_bundle::bundle_model_for_wasm;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum ModelType {
     BiRefNet,
     U2Net,
@@ -124,8 +125,8 @@ impl ModelsCmd {
 fn list_models() -> Result<()> {
     println!("Available Models:\n");
     println!(
-        "{:<16} {:<10} {:<12} {:<10} {}",
-        "Name", "Type", "Resolution", "Size", "Description"
+        "{:<16} {:<10} {:<12} {:<10} Description",
+        "Name", "Type", "Resolution", "Size"
     );
     println!("{}", "-".repeat(80));
 

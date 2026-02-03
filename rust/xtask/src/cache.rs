@@ -19,7 +19,7 @@ pub fn list_cached_models() -> Result<Vec<(String, u64)>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |ext| ext == "onnx") {
+        if path.extension().is_some_and(|ext| ext == "onnx") {
             let size = entry.metadata()?.len();
             let name = path
                 .file_name()
