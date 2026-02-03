@@ -192,14 +192,14 @@ All preprocessing/post-processing ported from:
 - Best for: Fast processing, good quality
 
 ### BiRefNet (Recommended for Quality)
-- Size: 50-200 MB
+- Size: ~214 MB
 - Input: 1024x1024
 - Speed: 2-5s (WebGPU)
 - Normalization: ImageNet + min-max
 - Best for: High quality, detailed edges
 
 ### ISNet (Balanced)
-- Size: ~43 MB
+- Size: ~169 MB
 - Input: 1024x1024
 - Speed: 1-3s (WebGPU)
 - Normalization: ImageNet

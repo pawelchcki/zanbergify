@@ -43,7 +43,7 @@ That's it! Just two UI elements.
 
 ### Model
 - **File**: `www/models/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx`
-- **Size**: 168 MB
+- **Size**: 214 MB
 - **Type**: BiRefNet (1024x1024)
 - **Quality**: Excellent - best for portraits and detailed edges
 - **Processing**: 2-5s (WebGPU), 8-15s (WASM)

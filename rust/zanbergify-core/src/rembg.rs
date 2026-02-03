@@ -236,13 +236,10 @@ fn check_directory_for_models(
     dir: &std::path::Path,
     filenames: &[&str],
 ) -> Option<std::path::PathBuf> {
-    for filename in filenames {
-        let path = dir.join(filename);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-    None
+    filenames
+        .iter()
+        .map(|filename| dir.join(filename))
+        .find(|path| path.exists())
 }
 
 /// Try to find a model path, searching for the preferred model type first.
