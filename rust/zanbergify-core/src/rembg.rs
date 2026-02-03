@@ -255,16 +255,20 @@ pub fn find_model_path(
         }
     }
 
-    // 3. Model-type-specific filenames in current directory and ~/.u2net/
+    // 3. xtask cache directory (~/.zanbergify/models/)
     let filenames = model_filenames(model_type);
 
-    for filename in &filenames {
-        let local = std::path::PathBuf::from(filename);
-        if local.exists() {
-            return Some(local);
+    if let Some(home) = dirs_path() {
+        let cache_dir = home.join(".zanbergify").join("models");
+        for filename in &filenames {
+            let cached = cache_dir.join(filename);
+            if cached.exists() {
+                return Some(cached);
+            }
         }
     }
 
+    // 4. Legacy cache directory (~/.u2net/)
     if let Some(home) = dirs_path() {
         let cache_dir = home.join(".u2net");
         for filename in &filenames {
@@ -275,7 +279,15 @@ pub fn find_model_path(
         }
     }
 
-    // 4. Fallback: try any known model file
+    // 5. Current directory
+    for filename in &filenames {
+        let local = std::path::PathBuf::from(filename);
+        if local.exists() {
+            return Some(local);
+        }
+    }
+
+    // 6. Fallback: try any known model file in xtask cache
     let all_filenames = [
         "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
         "BiRefNet-general-epoch_244.onnx",
@@ -283,13 +295,17 @@ pub fn find_model_path(
         "isnet-general-use.onnx",
     ];
 
-    for filename in &all_filenames {
-        let local = std::path::PathBuf::from(filename);
-        if local.exists() {
-            return Some(local);
+    if let Some(home) = dirs_path() {
+        let cache_dir = home.join(".zanbergify").join("models");
+        for filename in &all_filenames {
+            let cached = cache_dir.join(filename);
+            if cached.exists() {
+                return Some(cached);
+            }
         }
     }
 
+    // 7. Fallback: try any known model file in legacy cache
     if let Some(home) = dirs_path() {
         let cache_dir = home.join(".u2net");
         for filename in &all_filenames {
@@ -297,6 +313,14 @@ pub fn find_model_path(
             if cached.exists() {
                 return Some(cached);
             }
+        }
+    }
+
+    // 8. Fallback: try any known model file in current directory
+    for filename in &all_filenames {
+        let local = std::path::PathBuf::from(filename);
+        if local.exists() {
+            return Some(local);
         }
     }
 
