@@ -22,6 +22,20 @@ wasm-pack build --target web --release
 python3 -m http.server 8080 --directory www
 ```
 
+## Deployment
+
+Deploy to Cloudflare Pages:
+
+```bash
+# Build and deploy in one command
+./build-and-deploy.sh
+
+# Or deploy only (if already built)
+./deploy-to-cloudflare.sh
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions and troubleshooting.
+
 ## Usage
 
 ```javascript

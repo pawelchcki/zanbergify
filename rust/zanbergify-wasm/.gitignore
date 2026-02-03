@@ -1,6 +1,7 @@
 # WASM build artifacts
 /pkg/
 /target/
+/deploy/
 
 # Node modules (if using npm for testing)
 node_modules/
