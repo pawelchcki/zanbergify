@@ -14,8 +14,8 @@ pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u
     let tiles_y = tile_size as usize;
 
     // Tile dimensions (may not divide evenly - handle with care)
-    let tile_w = (w + tiles_x - 1) / tiles_x;
-    let tile_h = (h + tiles_y - 1) / tiles_y;
+    let tile_w = w.div_ceil(tiles_x);
+    let tile_h = h.div_ceil(tiles_y);
 
     // Compute LUT for each tile
     let mut luts = vec![vec![0u8; 256]; tiles_x * tiles_y];
@@ -49,8 +49,8 @@ pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u
 
             let total = cdf[255];
             if total == 0 {
-                for i in 0..256 {
-                    luts[ty * tiles_x + tx][i] = i as u8;
+                for (i, lut_val) in luts[ty * tiles_x + tx].iter_mut().enumerate() {
+                    *lut_val = i as u8;
                 }
             } else {
                 for i in 0..256 {
@@ -105,10 +105,10 @@ fn clip_histogram(hist: &mut [u32; 256], limit: u32) {
     // Iterative clipping - cap iterations to avoid infinite loops
     for _ in 0..256 {
         let mut excess = 0u32;
-        for i in 0..256 {
-            if hist[i] > limit {
-                excess += hist[i] - limit;
-                hist[i] = limit;
+        for h in hist.iter_mut() {
+            if *h > limit {
+                excess += *h - limit;
+                *h = limit;
             }
         }
 

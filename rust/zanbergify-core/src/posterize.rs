@@ -5,7 +5,6 @@
 /// - gray < thresh_low -> color_bg
 /// - thresh_low <= gray < thresh_high -> color_midtone
 /// - gray >= thresh_high -> color_highlight
-
 /// A set of three colors for posterization.
 #[derive(Debug, Clone, Copy)]
 pub struct ColorPalette {

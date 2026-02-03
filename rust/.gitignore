@@ -1,1 +1,4 @@
 rust/zanbergify-wasm/www/models/*.onnx
+
+# Large ONNX models should not be committed
+zanbergify-wasm/www/models/*.onnx
