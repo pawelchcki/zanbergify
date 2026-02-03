@@ -3,13 +3,18 @@ use image::{GenericImageView, RgbImage};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use zanbergify_core::pipeline::{AlgorithmParams, DetailedParams, extract_alpha};
 use zanbergify_core::exif_orientation::apply_exif_orientation;
-use zanbergify_core::posterize::{all_palette_names, named_palette, ColorPalette, PALETTE_ORIGINAL};
+use zanbergify_core::pipeline::{extract_alpha, AlgorithmParams, DetailedParams};
+use zanbergify_core::posterize::{
+    all_palette_names, named_palette, ColorPalette, PALETTE_ORIGINAL,
+};
 use zanbergify_core::rembg::{find_model_path, ModelType, RembgModel};
 
 #[derive(Parser)]
-#[command(name = "zanbergify-cli", about = "Posterize images with the zanbergify detailed algorithm")]
+#[command(
+    name = "zanbergify-cli",
+    about = "Posterize images with the zanbergify detailed algorithm"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -143,12 +148,11 @@ fn is_image_file(path: &Path) -> bool {
 }
 
 fn is_generated_file(path: &Path) -> bool {
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     PRESET_SUFFIXES.iter().any(|suffix| stem.ends_with(suffix))
-        || all_palette_names().iter().any(|pname| stem.ends_with(pname))
+        || all_palette_names()
+            .iter()
+            .any(|pname| stem.ends_with(pname))
 }
 
 fn default_output_path(input: &Path, preset_name: &str) -> PathBuf {
@@ -218,11 +222,7 @@ fn load_model_or_warn(model_arg: Option<&Path>, model_type: ModelType) -> Option
     match model_path {
         Some(path) => {
             let detected_type = ModelType::from_path(&path).unwrap_or(model_type);
-            eprintln!(
-                "Loading {:?} model from: {}",
-                detected_type,
-                path.display()
-            );
+            eprintln!("Loading {:?} model from: {}", detected_type, path.display());
             match RembgModel::load(&path, detected_type) {
                 Ok(model) => {
                     eprintln!("Model loaded successfully");
@@ -256,7 +256,11 @@ fn cmd_single(
 
     let model = load_model_or_warn(model_path, model_type);
 
-    eprintln!("Processing: {} -> {}", input.display(), output_path.display());
+    eprintln!(
+        "Processing: {} -> {}",
+        input.display(),
+        output_path.display()
+    );
     eprintln!("Preset: {}", preset_name);
 
     let img = image::open(input)?;
@@ -365,7 +369,6 @@ fn cmd_batch(
 
     // Process each image: remove background once, then apply all presets
     for (image_path, pending_presets) in &image_work {
-
         // Load image and remove background once
         eprintln!(
             "\nLoading & removing background: {} ({} presets to apply)",
@@ -406,7 +409,12 @@ fn cmd_batch(
                             None
                         }
                         Err(e) => {
-                            let msg = format!("{} [{}]: save failed: {}", image_path.display(), preset_name, e);
+                            let msg = format!(
+                                "{} [{}]: save failed: {}",
+                                image_path.display(),
+                                preset_name,
+                                e
+                            );
                             eprintln!("  Error: {}", msg);
                             Some(msg)
                         }
@@ -426,7 +434,9 @@ fn cmd_batch(
 
     eprintln!(
         "\nDone! Processed: {}, Skipped: {}, Errors: {}",
-        total_processed, total_skipped, all_errors.len()
+        total_processed,
+        total_skipped,
+        all_errors.len()
     );
     if !all_errors.is_empty() {
         for e in &all_errors {
@@ -505,13 +515,14 @@ fn cmd_compare(
         .map(|&s| s as f64 / total_pixels as f64)
         .collect();
 
-    println!("Image comparison: {} vs {}", image_a.display(), image_b.display());
+    println!(
+        "Image comparison: {} vs {}",
+        image_a.display(),
+        image_b.display()
+    );
     println!("Dimensions: {}x{}", width, height);
     println!("Total pixels: {}", total_pixels);
-    println!(
-        "Exact matches: {} ({:.2}%)",
-        exact_matches, match_pct
-    );
+    println!("Exact matches: {} ({:.2}%)", exact_matches, match_pct);
     println!(
         "MAE per channel (R,G,B): {:.4}, {:.4}, {:.4}",
         mae[0], mae[1], mae[2]
@@ -639,7 +650,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect()
             };
 
-            cmd_batch(&input_dir, &output, presets, jobs, force, model.as_deref(), mt)?;
+            cmd_batch(
+                &input_dir,
+                &output,
+                presets,
+                jobs,
+                force,
+                model.as_deref(),
+                mt,
+            )?;
         }
 
         Commands::Compare {

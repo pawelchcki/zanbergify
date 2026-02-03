@@ -2,11 +2,8 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 pub fn get_cache_dir() -> Result<PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .context("Could not determine home directory")?;
-
-    Ok(PathBuf::from(home).join(".zanbergify").join("models"))
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    Ok(home.join(".zanbergify").join("models"))
 }
 
 pub fn list_cached_models() -> Result<Vec<(String, u64)>> {
@@ -27,7 +24,7 @@ pub fn list_cached_models() -> Result<Vec<(String, u64)>> {
             let name = path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
+                .context("Non-UTF8 filename encountered")?
                 .to_string();
             models.push((name, size));
         }

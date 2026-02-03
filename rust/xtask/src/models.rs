@@ -123,7 +123,10 @@ impl ModelsCmd {
 
 fn list_models() -> Result<()> {
     println!("Available Models:\n");
-    println!("{:<16} {:<10} {:<12} {:<10} {}", "Name", "Type", "Resolution", "Size", "Description");
+    println!(
+        "{:<16} {:<10} {:<12} {:<10} {}",
+        "Name", "Type", "Resolution", "Size", "Description"
+    );
     println!("{}", "-".repeat(80));
 
     for model in MODELS {
@@ -142,16 +145,16 @@ fn list_models() -> Result<()> {
 }
 
 fn download_models(name: Option<String>, all: bool) -> Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+
     if all {
         for model in MODELS {
-            let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(download_model(model))?;
             println!();
         }
     } else if let Some(name) = name {
-        let model = find_model_by_name(&name)
-            .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
-        let rt = tokio::runtime::Runtime::new()?;
+        let model =
+            find_model_by_name(&name).ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
         rt.block_on(download_model(model))?;
     } else {
         bail!("Specify a model name or use --all");
@@ -176,8 +179,8 @@ fn verify_models(name: Option<String>, all: bool) -> Result<()> {
             }
         }
     } else if let Some(name) = name {
-        let model = find_model_by_name(&name)
-            .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
+        let model =
+            find_model_by_name(&name).ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
         verify_model(model)?;
     } else {
         bail!("Specify a model name or use --all");
@@ -224,8 +227,8 @@ fn clean_cache(all: bool, name: Option<String>) -> Result<()> {
             clean_model(&filename)?;
         }
     } else if let Some(name) = name {
-        let model = find_model_by_name(&name)
-            .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
+        let model =
+            find_model_by_name(&name).ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
         clean_model(model.filename)?;
     } else {
         bail!("Specify a model name or use --all");
@@ -235,7 +238,7 @@ fn clean_cache(all: bool, name: Option<String>) -> Result<()> {
 }
 
 fn bundle_model(name: String, dest: String) -> Result<()> {
-    let model = find_model_by_name(&name)
-        .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
+    let model =
+        find_model_by_name(&name).ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
     bundle_model_for_wasm(model, &dest)
 }

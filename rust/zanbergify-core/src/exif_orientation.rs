@@ -9,7 +9,6 @@
 /// 6 = Rotated 90° CW
 /// 7 = Transverse (flip horizontal + rotate 90° CW)
 /// 8 = Rotated 270° CW
-
 use image::DynamicImage;
 use std::io::Cursor;
 use std::path::Path;
@@ -18,7 +17,9 @@ use std::path::Path;
 fn read_exif_orientation(path: &Path) -> Option<u32> {
     let file = std::fs::File::open(path).ok()?;
     let mut bufreader = std::io::BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut bufreader).ok()?;
+    let exif = exif::Reader::new()
+        .read_from_container(&mut bufreader)
+        .ok()?;
     let orientation = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
     orientation.value.get_uint(0)
 }

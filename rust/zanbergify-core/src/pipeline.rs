@@ -1,6 +1,5 @@
 /// Full processing pipeline:
 /// load image -> rembg -> grayscale (BT.601) -> CLAHE -> sharpen -> posterize -> save PNG
-
 use image::{DynamicImage, GenericImageView, RgbImage};
 
 use crate::clahe::clahe;

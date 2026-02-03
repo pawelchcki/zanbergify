@@ -151,7 +151,9 @@ mod tests {
         let result = clahe(&gray, 64, 64, 4.0, 8);
         // All pixels should map to the same value
         let first = result[0];
-        assert!(result.iter().all(|&v| (v as i32 - first as i32).unsigned_abs() <= 1));
+        assert!(result
+            .iter()
+            .all(|&v| (v as i32 - first as i32).unsigned_abs() <= 1));
     }
 
     #[test]
