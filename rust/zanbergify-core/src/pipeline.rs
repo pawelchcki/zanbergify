@@ -5,6 +5,7 @@ use image::{DynamicImage, GenericImageView, RgbImage};
 use std::path::Path;
 
 use crate::clahe::clahe;
+use crate::comic_pipeline::{process_image_comic_with_alpha, ComicParams};
 use crate::exif_orientation::apply_exif_orientation;
 use crate::posterize::{posterize, ColorPalette, PALETTE_ORIGINAL};
 use crate::rembg::{extract_existing_alpha, RembgModel};
@@ -175,4 +176,58 @@ pub fn process_file(
     let result = process_image(&img, model, params)?;
     result.save(output_path)?;
     Ok(())
+}
+
+/// Unified algorithm parameters wrapping both detailed and comic pipelines.
+#[derive(Debug, Clone)]
+pub enum AlgorithmParams {
+    Detailed(DetailedParams),
+    Comic(ComicParams),
+}
+
+impl AlgorithmParams {
+    /// Apply a palette to whichever variant this is.
+    pub fn with_palette(self, palette: ColorPalette) -> Self {
+        match self {
+            AlgorithmParams::Detailed(p) => AlgorithmParams::Detailed(p.with_palette(palette)),
+            AlgorithmParams::Comic(p) => AlgorithmParams::Comic(p.with_palette(palette)),
+        }
+    }
+
+    /// Process an image with a pre-computed alpha channel.
+    pub fn process(
+        &self,
+        img: &DynamicImage,
+        alpha: &[u8],
+    ) -> Result<RgbImage, Box<dyn std::error::Error>> {
+        match self {
+            AlgorithmParams::Detailed(p) => process_image_with_alpha(img, alpha, p),
+            AlgorithmParams::Comic(p) => process_image_comic_with_alpha(img, alpha, p),
+        }
+    }
+
+    /// Look up a preset by name across both algorithm families.
+    pub fn from_preset(name: &str) -> Option<Self> {
+        if let Some(p) = DetailedParams::from_preset(name) {
+            return Some(AlgorithmParams::Detailed(p));
+        }
+        if let Some(p) = ComicParams::from_preset(name) {
+            return Some(AlgorithmParams::Comic(p));
+        }
+        None
+    }
+
+    /// All presets from both algorithm families.
+    pub fn all_presets() -> Vec<(&'static str, Self)> {
+        let mut result: Vec<(&'static str, Self)> = DetailedParams::all_presets()
+            .into_iter()
+            .map(|(name, p)| (name, AlgorithmParams::Detailed(p)))
+            .collect();
+        result.extend(
+            ComicParams::all_presets()
+                .into_iter()
+                .map(|(name, p)| (name, AlgorithmParams::Comic(p))),
+        );
+        result
+    }
 }

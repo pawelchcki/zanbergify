@@ -1,4 +1,6 @@
 pub mod clahe;
+pub mod comic_pipeline;
+pub mod edge_detect;
 pub mod exif_orientation;
 pub mod ffi;
 pub mod pipeline;

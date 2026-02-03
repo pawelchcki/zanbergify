@@ -3,7 +3,7 @@ use image::{GenericImageView, RgbImage};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use zanbergify_core::pipeline::{DetailedParams, extract_alpha, process_file, process_image_with_alpha};
+use zanbergify_core::pipeline::{AlgorithmParams, DetailedParams, extract_alpha};
 use zanbergify_core::exif_orientation::apply_exif_orientation;
 use zanbergify_core::posterize::{all_palette_names, named_palette, ColorPalette, PALETTE_ORIGINAL};
 use zanbergify_core::rembg::{find_model_path, ModelType, RembgModel};
@@ -122,6 +122,9 @@ const PRESET_SUFFIXES: &[&str] = &[
     "detailed_standard",
     "detailed_strong",
     "detailed_fine",
+    "comic_bold",
+    "comic_fine",
+    "comic_heavy",
     "dark",
     "balanced",
     "bright",
@@ -242,7 +245,7 @@ fn load_model_or_warn(model_arg: Option<&Path>, model_type: ModelType) -> Option
 fn cmd_single(
     input: &Path,
     output: Option<&Path>,
-    params: DetailedParams,
+    params: AlgorithmParams,
     preset_name: &str,
     model_path: Option<&Path>,
     model_type: ModelType,
@@ -254,18 +257,13 @@ fn cmd_single(
     let model = load_model_or_warn(model_path, model_type);
 
     eprintln!("Processing: {} -> {}", input.display(), output_path.display());
-    eprintln!(
-        "Params: thresh_low={}, thresh_high={}, clip_limit={}, tile_size={}",
-        params.thresh_low, params.thresh_high, params.clip_limit, params.tile_size
-    );
-    eprintln!(
-        "Palette: bg=#{:02X}{:02X}{:02X}, mid=#{:02X}{:02X}{:02X}, hi=#{:02X}{:02X}{:02X}",
-        params.palette.bg[0], params.palette.bg[1], params.palette.bg[2],
-        params.palette.midtone[0], params.palette.midtone[1], params.palette.midtone[2],
-        params.palette.highlight[0], params.palette.highlight[1], params.palette.highlight[2],
-    );
+    eprintln!("Preset: {}", preset_name);
 
-    process_file(input, &output_path, model.as_ref(), &params)?;
+    let img = image::open(input)?;
+    let img = apply_exif_orientation(img, input);
+    let alpha = extract_alpha(&img, model.as_ref())?;
+    let result = params.process(&img, &alpha)?;
+    result.save(&output_path)?;
     eprintln!("Done: {}", output_path.display());
     Ok(())
 }
@@ -273,7 +271,7 @@ fn cmd_single(
 fn cmd_batch(
     input_dir: &Path,
     output_dir: &Path,
-    presets: Vec<(String, DetailedParams)>,
+    presets: Vec<(String, AlgorithmParams)>,
     jobs: Option<usize>,
     force: bool,
     model_path: Option<&Path>,
@@ -316,13 +314,13 @@ fn cmd_batch(
     let mut all_errors: Vec<String> = Vec::new();
 
     // Pre-compute pending work per image and sort: most pending first
-    let mut image_work: Vec<(PathBuf, Vec<(PathBuf, String, DetailedParams)>)> = Vec::new();
+    let mut image_work: Vec<(PathBuf, Vec<(PathBuf, String, AlgorithmParams)>)> = Vec::new();
     let mut pre_skipped = 0usize;
 
     for image_path in &images {
         let stem = image_path.file_stem().unwrap().to_str().unwrap();
 
-        let pending: Vec<(PathBuf, String, DetailedParams)> = presets
+        let pending: Vec<(PathBuf, String, AlgorithmParams)> = presets
             .iter()
             .filter_map(|(preset_name, params)| {
                 let output_path = output_dir.join(format!("{}_{}.png", stem, preset_name));
@@ -401,7 +399,7 @@ fn cmd_batch(
             .par_iter()
             .filter_map(|(output_path, preset_name, params)| {
                 eprintln!("  Applying [{}] -> {}", preset_name, output_path.display());
-                match process_image_with_alpha(img_ref, &alpha, params) {
+                match params.process(img_ref, &alpha) {
                     Ok(result) => match result.save(output_path) {
                         Ok(()) => {
                             eprintln!("  Done: {}", output_path.display());
@@ -552,19 +550,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let resolved_palette = resolve_palette(&palette, &colors)?;
 
             let (preset_name, params) = if let Some(ref name) = preset {
-                let p = DetailedParams::from_preset(name)
+                let p = AlgorithmParams::from_preset(name)
                     .ok_or_else(|| format!("Unknown preset: {}", name))?;
                 (name.as_str(), p)
             } else {
                 (
                     "detailed_strong",
-                    DetailedParams {
+                    AlgorithmParams::Detailed(DetailedParams {
                         thresh_low,
                         thresh_high,
                         clip_limit,
                         tile_size,
                         palette: PALETTE_ORIGINAL,
-                    },
+                    }),
                 )
             };
 
@@ -603,16 +601,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let resolved_palette = resolve_palette(&palette, &colors)?;
 
             // Build base presets (processing params without palette)
-            let base_presets: Vec<(&str, DetailedParams)> = if let Some(ref name) = preset {
-                let p = DetailedParams::from_preset(name)
+            let base_presets: Vec<(&str, AlgorithmParams)> = if let Some(ref name) = preset {
+                let p = AlgorithmParams::from_preset(name)
                     .ok_or_else(|| format!("Unknown preset: {}", name))?;
                 vec![(leak_str(name.clone()), p)]
             } else {
-                DetailedParams::all_presets()
+                AlgorithmParams::all_presets()
             };
 
             // Build final presets with palette variations
-            let presets: Vec<(String, DetailedParams)> = if all_palettes {
+            let presets: Vec<(String, AlgorithmParams)> = if all_palettes {
                 // Cross-product: each base preset x each palette
                 let mut result = Vec::new();
                 for (base_name, base_params) in &base_presets {
