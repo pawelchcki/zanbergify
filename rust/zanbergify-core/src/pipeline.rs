@@ -2,14 +2,18 @@
 /// load image -> rembg -> grayscale (BT.601) -> CLAHE -> sharpen -> posterize -> save PNG
 
 use image::{DynamicImage, GenericImageView, RgbImage};
-use std::path::Path;
 
 use crate::clahe::clahe;
 use crate::comic_pipeline::{process_image_comic_with_alpha, ComicParams};
-use crate::exif_orientation::apply_exif_orientation;
 use crate::posterize::{posterize, ColorPalette, PALETTE_ORIGINAL};
-use crate::rembg::{extract_existing_alpha, RembgModel};
 use crate::sharpen::sharpen;
+
+#[cfg(feature = "rembg")]
+use crate::exif_orientation::apply_exif_orientation;
+#[cfg(feature = "rembg")]
+use crate::rembg::{extract_existing_alpha, RembgModel};
+#[cfg(feature = "rembg")]
+use std::path::Path;
 
 /// Processing parameters for the detailed algorithm.
 #[derive(Debug, Clone)]
@@ -98,6 +102,7 @@ pub fn rgb_to_grayscale(img: &DynamicImage) -> Vec<u8> {
 }
 
 /// Extract alpha channel from an image using background removal model or fallback.
+#[cfg(feature = "rembg")]
 pub fn extract_alpha(
     img: &DynamicImage,
     model: Option<&RembgModel>,
@@ -121,7 +126,29 @@ pub fn extract_alpha(
     }
 }
 
+/// Extract alpha channel from an image (without rembg support).
+#[cfg(not(feature = "rembg"))]
+pub fn extract_alpha_from_image(img: &DynamicImage) -> Vec<u8> {
+    let (width, height) = img.dimensions();
+
+    // Try to extract existing alpha channel
+    if img.color().has_alpha() {
+        let rgba = img.to_rgba8();
+        let mut alpha = Vec::with_capacity((width * height) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                alpha.push(rgba.get_pixel(x, y)[3]);
+            }
+        }
+        alpha
+    } else {
+        // No alpha channel - assume fully opaque
+        vec![255u8; (width * height) as usize]
+    }
+}
+
 /// Process a single image through the full detailed pipeline.
+#[cfg(feature = "rembg")]
 pub fn process_image(
     img: &DynamicImage,
     model: Option<&RembgModel>,
@@ -165,6 +192,7 @@ pub fn process_image_with_alpha(
 }
 
 /// Process and save a single image file.
+#[cfg(feature = "rembg")]
 pub fn process_file(
     input_path: &Path,
     output_path: &Path,

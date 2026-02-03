@@ -1,3 +1,8 @@
 [workspace]
-members = ["zanbergify-core", "zanbergify-cli"]
+members = ["zanbergify-core", "zanbergify-cli", "zanbergify-wasm"]
 resolver = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

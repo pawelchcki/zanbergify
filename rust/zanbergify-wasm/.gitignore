@@ -1,0 +1,15 @@
+# WASM build artifacts
+/pkg/
+/target/
+
+# Node modules (if using npm for testing)
+node_modules/
+
+# Editor files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debug
+*.log

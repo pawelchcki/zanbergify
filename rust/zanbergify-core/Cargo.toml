@@ -8,6 +8,10 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 image = "0.25"
-ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "copy-dylibs", "download-binaries", "tls-native"] }
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "copy-dylibs", "download-binaries", "tls-native"], optional = true }
 ndarray = "0.17"
 kamadak-exif = "0.5"
+
+[features]
+default = ["rembg"]
+rembg = ["dep:ort"]

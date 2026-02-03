@@ -1,0 +1,102 @@
+# zanbergify-wasm
+
+WebAssembly bindings for the zanbergify image processing library.
+
+## Features
+
+- Posterize images with detailed algorithm
+- Preserve alpha channel transparency
+- Browser-friendly API
+- Small bundle size (~500KB)
+
+## Building
+
+```bash
+# Install wasm-pack
+cargo install wasm-pack
+
+# Build for web
+wasm-pack build --target web --release
+
+# Test locally
+python3 -m http.server 8080 --directory www
+```
+
+## Usage
+
+```javascript
+import init, { ZanbergifyProcessor, DetailedParams, ColorPalette } from './pkg/zanbergify_wasm.js';
+
+// Initialize WASM module
+await init();
+
+// Load image
+const file = document.getElementById('input').files[0];
+const imageBytes = new Uint8Array(await file.arrayBuffer());
+
+// Process image
+const params = DetailedParams.detailedStandard();
+const palette = ColorPalette.original();
+const resultBytes = ZanbergifyProcessor.processImage(imageBytes, params, palette);
+
+// Display result
+const blob = new Blob([resultBytes], { type: 'image/png' });
+document.getElementById('output').src = URL.createObjectURL(blob);
+```
+
+## API
+
+### DetailedParams
+
+Processing parameters for the detailed posterization algorithm.
+
+**Factory methods:**
+- `DetailedParams.detailedStandard()` - Balanced quality and detail
+- `DetailedParams.detailedStrong()` - Enhanced contrast and sharpness
+- `DetailedParams.detailedFine()` - Fine detail preservation
+
+**Constructor:**
+- `new DetailedParams(threshLow, threshHigh, clipLimit, tileSize)`
+
+### ColorPalette
+
+Color schemes for posterization output.
+
+**Presets:**
+- `ColorPalette.original()` - Burgundy/cream/orange (default)
+- `ColorPalette.burgundy()` - Same as original
+- `ColorPalette.teal()` - Teal/cream/gold
+- `ColorPalette.royal()` - Navy/cream/gold
+- And more...
+
+**Constructor:**
+- `new ColorPalette(bgHex, midtoneHex, highlightHex)` - Custom colors
+
+### ZanbergifyProcessor
+
+Static processing methods.
+
+**Methods:**
+- `ZanbergifyProcessor.processImage(imageBytes, params, palette)` - Process image and return PNG bytes
+
+## Image Handling
+
+### Input
+- Accepts any format: PNG, JPEG, WebP, BMP
+- Load from File API: `file.arrayBuffer()` → `Uint8Array`
+- Alpha channel preserved if present, otherwise assumes fully opaque
+
+### Output
+- Returns PNG-encoded bytes as `Uint8Array`
+- Create Blob: `new Blob([resultBytes], { type: 'image/png' })`
+- Display via Object URL or download
+
+## Bundle Size
+
+- WASM binary: ~300-500KB (with wasm-opt)
+- JavaScript glue: ~50KB
+- Total: **~500KB**
+
+## License
+
+Same as parent project.
