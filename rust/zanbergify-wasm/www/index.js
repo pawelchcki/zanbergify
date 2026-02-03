@@ -7,10 +7,25 @@ let currentImageBytes = null;
 const imageInput = document.getElementById('imageInput');
 const presetSelect = document.getElementById('presetSelect');
 const paletteSelect = document.getElementById('paletteSelect');
+const autoProcessCheckbox = document.getElementById('autoProcess');
 const processBtn = document.getElementById('processBtn');
 const statusDiv = document.getElementById('status');
 const originalWrapper = document.getElementById('originalWrapper');
 const resultWrapper = document.getElementById('resultWrapper');
+
+// Slider elements
+const threshLowSlider = document.getElementById('threshLow');
+const threshLowValue = document.getElementById('threshLowValue');
+const threshHighSlider = document.getElementById('threshHigh');
+const threshHighValue = document.getElementById('threshHighValue');
+const clipLimitSlider = document.getElementById('clipLimit');
+const clipLimitValue = document.getElementById('clipLimitValue');
+const tileSizeSlider = document.getElementById('tileSize');
+const tileSizeValue = document.getElementById('tileSizeValue');
+
+// Processing state
+let processingTimeout = null;
+let isProcessing = false;
 
 // Initialize WASM module
 async function initWasm() {
@@ -31,6 +46,47 @@ async function initWasm() {
 // Show status message
 function showStatus(message, type = 'info') {
     statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+}
+
+// Preset configurations
+const presets = {
+    standard: { threshLow: 80, threshHigh: 160, clipLimit: 3.0, tileSize: 8 },
+    strong: { threshLow: 70, threshHigh: 150, clipLimit: 4.0, tileSize: 8 },
+    fine: { threshLow: 80, threshHigh: 160, clipLimit: 2.5, tileSize: 4 }
+};
+
+// Apply preset to sliders
+function applyPreset(presetName) {
+    if (presets[presetName]) {
+        const preset = presets[presetName];
+        threshLowSlider.value = preset.threshLow;
+        threshLowValue.textContent = preset.threshLow;
+        threshHighSlider.value = preset.threshHigh;
+        threshHighValue.textContent = preset.threshHigh;
+        clipLimitSlider.value = preset.clipLimit;
+        clipLimitValue.textContent = preset.clipLimit.toFixed(1);
+        tileSizeSlider.value = preset.tileSize;
+        tileSizeValue.textContent = preset.tileSize;
+    }
+}
+
+// Debounced auto-process
+function scheduleAutoProcess() {
+    if (!autoProcessCheckbox.checked || !currentImageBytes) {
+        return;
+    }
+
+    // Clear existing timeout
+    if (processingTimeout) {
+        clearTimeout(processingTimeout);
+    }
+
+    // Schedule new processing after 500ms of no changes
+    processingTimeout = setTimeout(() => {
+        if (!isProcessing) {
+            processImage();
+        }
+    }, 500);
 }
 
 // Load and display original image
@@ -55,6 +111,9 @@ async function loadImage(file) {
         setTimeout(() => {
             statusDiv.innerHTML = '';
         }, 2000);
+
+        // Auto-process if enabled
+        scheduleAutoProcess();
     } catch (error) {
         showStatus(`Failed to load image: ${error.message}`, 'error');
         console.error('Image loading error:', error);
@@ -74,26 +133,18 @@ async function processImage() {
     }
 
     try {
+        isProcessing = true;
         processBtn.disabled = true;
         const startTime = performance.now();
         showStatus('Processing image...', 'info');
 
-        // Get selected preset
-        const presetValue = presetSelect.value;
-        let params;
-        switch (presetValue) {
-            case 'standard':
-                params = DetailedParams.detailedStandard();
-                break;
-            case 'strong':
-                params = DetailedParams.detailedStrong();
-                break;
-            case 'fine':
-                params = DetailedParams.detailedFine();
-                break;
-            default:
-                params = DetailedParams.detailedStandard();
-        }
+        // Get slider values and create custom params
+        const threshLow = parseInt(threshLowSlider.value);
+        const threshHigh = parseInt(threshHighSlider.value);
+        const clipLimit = parseFloat(clipLimitSlider.value);
+        const tileSize = parseInt(tileSizeSlider.value);
+
+        const params = new DetailedParams(threshLow, threshHigh, clipLimit, tileSize);
 
         // Get selected palette
         const paletteValue = paletteSelect.value;
@@ -149,6 +200,7 @@ async function processImage() {
         showStatus(`Processing failed: ${error.message}`, 'error');
         console.error('Processing error:', error);
     } finally {
+        isProcessing = false;
         processBtn.disabled = false;
     }
 }
@@ -162,6 +214,45 @@ imageInput.addEventListener('change', (e) => {
 });
 
 processBtn.addEventListener('click', processImage);
+
+// Preset selection
+presetSelect.addEventListener('change', (e) => {
+    const preset = e.target.value;
+    if (preset !== 'custom') {
+        applyPreset(preset);
+        scheduleAutoProcess();
+    }
+});
+
+// Palette change triggers auto-process
+paletteSelect.addEventListener('change', () => {
+    scheduleAutoProcess();
+});
+
+// Slider value display updates and auto-process
+threshLowSlider.addEventListener('input', (e) => {
+    threshLowValue.textContent = e.target.value;
+    presetSelect.value = 'custom';
+    scheduleAutoProcess();
+});
+
+threshHighSlider.addEventListener('input', (e) => {
+    threshHighValue.textContent = e.target.value;
+    presetSelect.value = 'custom';
+    scheduleAutoProcess();
+});
+
+clipLimitSlider.addEventListener('input', (e) => {
+    clipLimitValue.textContent = parseFloat(e.target.value).toFixed(1);
+    presetSelect.value = 'custom';
+    scheduleAutoProcess();
+});
+
+tileSizeSlider.addEventListener('input', (e) => {
+    tileSizeValue.textContent = e.target.value;
+    presetSelect.value = 'custom';
+    scheduleAutoProcess();
+});
 
 // Initialize on page load
 initWasm();
