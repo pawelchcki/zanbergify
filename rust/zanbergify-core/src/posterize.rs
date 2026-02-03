@@ -6,7 +6,7 @@
 /// - gray < thresh_low -> color_bg
 /// - thresh_low <= gray < thresh_high -> color_midtone
 /// - gray >= thresh_high -> color_highlight
-
+///
 /// A set of three colors for posterization.
 #[derive(Debug, Clone, Copy)]
 pub struct ColorPalette {
@@ -121,9 +121,7 @@ pub fn posterize(
     let mut rgb = vec![0u8; len * 3];
 
     for i in 0..len {
-        let color = if alpha[i] <= 10 {
-            &palette.bg
-        } else if gray[i] < thresh_low {
+        let color = if alpha[i] <= 10 || gray[i] < thresh_low {
             &palette.bg
         } else if gray[i] < thresh_high {
             &palette.midtone

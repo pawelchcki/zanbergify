@@ -4,7 +4,6 @@
 /// - Divide image into tile_size x tile_size grid
 /// - Per-tile histogram with clip limit and iterative redistribution
 /// - Bilinear interpolation between tile LUTs
-
 pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u32) -> Vec<u8> {
     let w = width as usize;
     let h = height as usize;
@@ -53,10 +52,10 @@ pub fn clahe(gray: &[u8], width: u32, height: u32, clip_limit: f64, tile_size: u
                     *lut_val = i as u8;
                 }
             } else {
-                for i in 0..256 {
+                for (i, &c) in cdf.iter().enumerate() {
                     // Scale CDF to [0, 255] range
                     // Match OpenCV: (cdf[i] * 255 + total/2) / total, but use scale factor
-                    let val = ((cdf[i] as f64 * 255.0) / total as f64 + 0.5) as u32;
+                    let val = ((c as f64 * 255.0) / total as f64 + 0.5) as u32;
                     luts[ty * tiles_x + tx][i] = val.min(255) as u8;
                 }
             }
@@ -121,8 +120,8 @@ fn clip_histogram(hist: &mut [u32; 256], limit: u32) {
         let remainder = (excess % 256) as usize;
 
         if avg_inc > 0 {
-            for i in 0..256 {
-                hist[i] = (hist[i] + avg_inc).min(limit);
+            for h in hist.iter_mut() {
+                *h = (*h + avg_inc).min(limit);
             }
         }
 

@@ -1,7 +1,6 @@
 /// Sobel edge detection with thresholding, dilation, and overlay.
 ///
 /// Used by the comic pipeline to produce bold outlines on posterized images.
-
 /// Reflect index at borders using BORDER_REFLECT_101 (dcb|abcdefg|fed).
 #[inline]
 fn reflect101(idx: i32, size: i32) -> i32 {

@@ -318,7 +318,8 @@ fn cmd_batch(
     let mut all_errors: Vec<String> = Vec::new();
 
     // Pre-compute pending work per image and sort: most pending first
-    let mut image_work: Vec<(PathBuf, Vec<(PathBuf, String, AlgorithmParams)>)> = Vec::new();
+    type PresetWork = Vec<(PathBuf, String, AlgorithmParams)>;
+    let mut image_work: Vec<(PathBuf, PresetWork)> = Vec::new();
     let mut pre_skipped = 0usize;
 
     for image_path in &images {

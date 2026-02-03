@@ -126,7 +126,6 @@ pub fn extract_alpha(
 }
 
 /// Extract alpha channel from an image (without rembg support).
-#[cfg(not(feature = "rembg"))]
 pub fn extract_alpha_from_image(img: &DynamicImage) -> Vec<u8> {
     let (width, height) = img.dimensions();
 
