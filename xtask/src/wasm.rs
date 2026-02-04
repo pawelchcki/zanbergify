@@ -191,13 +191,13 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
         println!("  ✓ Copied _headers");
     }
 
-    // Copy models directory
-    let src_models = www_dir.join("models");
-    let dst_models = output_dir.join("models");
-    if src_models.exists() {
-        copy_dir_recursive(&src_models, &dst_models)?;
-        println!("  ✓ Copied models/");
-    }
+    // Models are loaded from external URL (GitHub releases), no need to copy
+    // let src_models = www_dir.join("models");
+    // let dst_models = output_dir.join("models");
+    // if src_models.exists() {
+    //     copy_dir_recursive(&src_models, &dst_models)?;
+    //     println!("  ✓ Copied models/");
+    // }
 
     // Copy pkg directory
     let dst_pkg = output_dir.join("pkg");
@@ -1066,43 +1066,131 @@ async fn deploy_to_cloudflare(
         let missing_set: std::collections::HashSet<String> =
             missing_hashes.iter().cloned().collect();
 
-        // Build upload payload
-        let mut upload_files = Vec::new();
+        // Separate small and large files (25 MB threshold)
+        const MAX_BATCH_SIZE: usize = 25 * 1024 * 1024; // 25 MB
+        let mut small_files = Vec::new();
+        let mut large_files = Vec::new();
+
         for (_path, (full_path, hash)) in &files {
             if missing_set.contains(hash) {
-                let content = fs::read(full_path)
-                    .context(format!("Failed to read file: {}", full_path.display()))?;
-                let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+                let file_size = fs::metadata(full_path)
+                    .context(format!("Failed to get file size: {}", full_path.display()))?
+                    .len() as usize;
 
-                upload_files.push(UploadPayloadFile {
-                    key: hash.clone(),
-                    value: encoded,
-                    metadata: FileMetadata {
-                        content_type: get_mime_type(full_path).to_string(),
-                    },
-                    base64: true,
-                });
+                if file_size > MAX_BATCH_SIZE {
+                    large_files.push((full_path, hash, file_size));
+                } else {
+                    let content = fs::read(full_path)
+                        .context(format!("Failed to read file: {}", full_path.display()))?;
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+
+                    small_files.push(UploadPayloadFile {
+                        key: hash.clone(),
+                        value: encoded,
+                        metadata: FileMetadata {
+                            content_type: get_mime_type(full_path).to_string(),
+                        },
+                        base64: true,
+                    });
+                }
             }
         }
 
-        let upload_url = "https://api.cloudflare.com/client/v4/pages/assets/upload".to_string();
+        // Upload small files in batch
+        if !small_files.is_empty() {
+            println!("  Uploading {} small files in batch...", small_files.len());
+            let upload_url = "https://api.cloudflare.com/client/v4/pages/assets/upload".to_string();
 
-        let upload_response = client
-            .post(&upload_url)
-            .header("Authorization", format!("Bearer {}", jwt))
-            .header("Content-Type", "application/json")
-            .json(&upload_files)
-            .send()
-            .await
-            .context("Failed to upload files")?;
+            let upload_response = client
+                .post(&upload_url)
+                .header("Authorization", format!("Bearer {}", jwt))
+                .header("Content-Type", "application/json")
+                .json(&small_files)
+                .send()
+                .await
+                .context("Failed to upload small files")?;
 
-        if !upload_response.status().is_success() {
-            let status = upload_response.status();
-            let body = upload_response.text().await.unwrap_or_default();
-            bail!("Failed to upload files (status: {}): {}", status, body);
+            if !upload_response.status().is_success() {
+                let status = upload_response.status();
+                let body = upload_response.text().await.unwrap_or_default();
+                bail!("Failed to upload small files (status: {}): {}", status, body);
+            }
+            println!("  ✓ Small files uploaded");
         }
 
-        println!("✓ Files uploaded successfully");
+        // Upload large files individually using direct PUT
+        if !large_files.is_empty() {
+            println!("  Uploading {} large files individually...", large_files.len());
+
+            for (i, (full_path, hash, size)) in large_files.iter().enumerate() {
+                let filename = full_path.file_name().unwrap().to_string_lossy();
+                println!("    [{}/{}] {} ({:.1} MB)...",
+                    i + 1,
+                    large_files.len(),
+                    filename,
+                    *size as f64 / 1_048_576.0
+                );
+
+                let content = fs::read(full_path)
+                    .context(format!("Failed to read file: {}", full_path.display()))?;
+
+                // Try uploading with binary body instead of base64 JSON
+                let upload_url = format!("https://api.cloudflare.com/client/v4/pages/assets/{}", hash);
+
+                let upload_response = client
+                    .put(&upload_url)
+                    .header("Authorization", format!("Bearer {}", jwt))
+                    .header("Content-Type", get_mime_type(full_path))
+                    .body(content)
+                    .send()
+                    .await;
+
+                // If PUT to /pages/assets/{hash} fails, fall back to JSON upload endpoint
+                let result: Result<()> = match upload_response {
+                    Ok(resp) if resp.status().is_success() => {
+                        println!("      ✓ Uploaded via PUT");
+                        Ok(())
+                    }
+                    _ => {
+                        println!("      PUT failed, trying JSON upload...");
+                        let content = fs::read(full_path)?;
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+
+                        let payload = vec![UploadPayloadFile {
+                            key: (*hash).clone(),
+                            value: encoded,
+                            metadata: FileMetadata {
+                                content_type: get_mime_type(full_path).to_string(),
+                            },
+                            base64: true,
+                        }];
+
+                        let upload_url = "https://api.cloudflare.com/client/v4/pages/assets/upload".to_string();
+                        let resp = client
+                            .post(&upload_url)
+                            .header("Authorization", format!("Bearer {}", jwt))
+                            .header("Content-Type", "application/json")
+                            .json(&payload)
+                            .send()
+                            .await
+                            .context(format!("Failed to upload large file: {}", filename))?;
+
+                        if !resp.status().is_success() {
+                            let status = resp.status();
+                            let body = resp.text().await.unwrap_or_default();
+                            bail!("Failed to upload large file {} (status: {}): {}", filename, status, body);
+                        }
+                        println!("      ✓ Uploaded via JSON");
+                        Ok(())
+                    }
+                };
+
+                result?;
+            }
+            println!("  ✓ Large files uploaded");
+        }
+
+        println!("✓ All files uploaded successfully");
     } else {
         println!("✓ No new files to upload");
     }

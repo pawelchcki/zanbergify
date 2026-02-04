@@ -33,7 +33,7 @@ pub const MODELS: &[ModelInfo] = &[
         url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
         filename: "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx",
         size_bytes: 224_005_088,
-        sha256: "8c125705850b1c4e3ca3859c82b8f89e3c88e723e10de8cd8be90fb8eb839343",
+        sha256: "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333",
         input_size: 1024,
         description: "BiRefNet lite - high quality, detailed edges",
     },

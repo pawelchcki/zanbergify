@@ -199,7 +199,7 @@ async function loadBundledModel() {
 
         // Always use BiRefNet
         currentModelType = 'birefnet';
-        const modelUrl = 'models/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
+        const modelUrl = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
         const cacheKey = `bundled_birefnet`;
 
         let modelData = null;
