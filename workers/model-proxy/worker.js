@@ -1,0 +1,44 @@
+// CORS-enabled CDN proxy for R2 model files
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // Handle OPTIONS for CORS preflight
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+          'Access-Control-Max-Age': '86400',
+        }
+      });
+    }
+
+    // Only allow GET and HEAD requests
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    // Get the object from R2
+    const objectKey = url.pathname.slice(1) || 'BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
+    const object = await env.MODELS.get(objectKey);
+
+    if (!object) {
+      return new Response('Model not found', { status: 404 });
+    }
+
+    // Return with CORS headers
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    headers.set('Access-Control-Max-Age', '86400');
+    headers.set('Cache-Control', 'public, max-age=86400');
+    headers.set('etag', object.httpEtag);
+
+    return new Response(object.body, {
+      headers: headers
+    });
+  }
+}

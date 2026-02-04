@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
 
 use crate::cache::{cache_size, clean_model, get_cache_dir, list_cached_models};
@@ -107,6 +107,14 @@ pub enum ModelsSubCmd {
         #[arg(long, default_value = "zanbergify-wasm/www/models")]
         dest: String,
     },
+    /// Upload model to Cloudflare R2
+    UploadR2 {
+        /// Model name to upload
+        name: String,
+        /// R2 bucket name
+        #[arg(long, default_value = "zanbergify-models")]
+        bucket: String,
+    },
 }
 
 impl ModelsCmd {
@@ -118,6 +126,7 @@ impl ModelsCmd {
             ModelsSubCmd::Info => show_cache_info(),
             ModelsSubCmd::Clean { all, name } => clean_cache(all, name),
             ModelsSubCmd::Bundle { name, dest } => bundle_model(name, dest),
+            ModelsSubCmd::UploadR2 { name, bucket } => upload_to_r2(name, bucket),
         }
     }
 }
@@ -242,4 +251,79 @@ fn bundle_model(name: String, dest: String) -> Result<()> {
     let model =
         find_model_by_name(&name).ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
     bundle_model_for_wasm(model, &dest)
+}
+
+fn upload_to_r2(name: String, bucket: String) -> Result<()> {
+    let model =
+        find_model_by_name(&name).ok_or_else(|| anyhow::anyhow!("Unknown model: {}", name))?;
+
+    // Get model file path from cache
+    let cache_dir = get_cache_dir()?;
+    let model_path = cache_dir.join(model.filename);
+
+    if !model_path.exists() {
+        bail!(
+            "Model not found in cache. Download it first with: cargo xtask models download {}",
+            name
+        );
+    }
+
+    // Verify model before uploading
+    verify_model(model)?;
+
+    // Get Cloudflare credentials
+    let api_token = std::env::var("CLOUDFLARE_API_TOKEN")
+        .or_else(|_| std::env::var("CF_API_TOKEN"))
+        .context(
+            "CLOUDFLARE_API_TOKEN not found in environment\n\n\
+             Set it with: export CLOUDFLARE_API_TOKEN=your_token_here\n\
+             Get your token from: https://dash.cloudflare.com/profile/api-tokens"
+        )?;
+
+    let account_id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
+        .context(
+            "CLOUDFLARE_ACCOUNT_ID not found in environment\n\n\
+             Set it with: export CLOUDFLARE_ACCOUNT_ID=your_account_id"
+        )?;
+
+    let r2_config = crate::r2::R2Config {
+        account_id,
+        api_token,
+        bucket_name: bucket.clone(),
+    };
+
+    // Upload to R2
+    let rt = tokio::runtime::Runtime::new()?;
+
+    println!("\nUploading model to R2...");
+    println!("  Model: {}", model.name);
+    println!("  Bucket: {}", bucket);
+    println!();
+
+    let public_url = rt.block_on(async {
+        // First, ensure CORS is configured
+        if let Err(e) = crate::r2::set_bucket_cors(&r2_config).await {
+            println!("Warning: Could not set CORS (bucket may not exist or already configured): {}", e);
+        }
+
+        // Make bucket public
+        if let Err(e) = crate::r2::make_bucket_public(&r2_config).await {
+            println!("Warning: Could not make bucket public: {}", e);
+        }
+
+        // Upload the model
+        crate::r2::upload_file_to_r2(
+            &r2_config,
+            &model_path,
+            model.filename,
+            "application/octet-stream",
+        ).await
+    })?;
+
+    println!("\n✓ Model uploaded successfully!");
+    println!("\nPublic URL: {}", public_url);
+    println!("\nUpdate your WASM app to use this URL:");
+    println!("  const modelUrl = '{}';", public_url);
+
+    Ok(())
 }

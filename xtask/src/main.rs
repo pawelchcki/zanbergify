@@ -4,6 +4,7 @@ use clap::Parser;
 mod cache;
 mod download;
 mod models;
+mod r2;
 mod util;
 mod verify;
 mod wasm;

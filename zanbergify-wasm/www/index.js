@@ -197,9 +197,9 @@ async function loadBundledModel() {
     try {
         await initOnnxRuntime();
 
-        // Always use BiRefNet
+        // Always use BiRefNet (hosted on Cloudflare R2 via CDN Worker)
         currentModelType = 'birefnet';
-        const modelUrl = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
+        const modelUrl = 'https://zanbergify-models-cdn.pawelchcki.workers.dev/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
         const cacheKey = `bundled_birefnet`;
 
         let modelData = null;
