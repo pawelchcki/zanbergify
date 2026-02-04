@@ -24,7 +24,6 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all --check
-        working-directory: rust
 
   clippy:
     name: Clippy Lints
@@ -37,13 +36,9 @@ jobs:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-          shared-key: rust-ci
 
       - name: Run clippy
         run: cargo clippy --all-targets --workspace -- -D warnings
-        working-directory: rust
 
   test:
     name: Tests
@@ -54,13 +49,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-          shared-key: rust-ci
 
       - name: Run tests
         run: cargo test --workspace
-        working-directory: rust
 
   build:
     name: Build Check
@@ -71,13 +62,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-          shared-key: rust-ci
 
       - name: Build all crates
         run: cargo build --workspace --release
-        working-directory: rust
 
   wasm:
     name: WASM Build Check
@@ -90,13 +77,10 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-          shared-key: rust-ci
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM package
         run: wasm-pack build --target web
-        working-directory: rust/zanbergify-wasm
+        working-directory: zanbergify-wasm
