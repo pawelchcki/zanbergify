@@ -1,9 +1,9 @@
+use crate::exif_orientation::apply_exif_orientation_from_bytes;
+use crate::pipeline::{extract_alpha_from_image, AlgorithmParams};
+use crate::posterize::named_palette;
+use image::GenericImageView;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use image::GenericImageView;
-use crate::exif_orientation::apply_exif_orientation_from_bytes;
-use crate::pipeline::{AlgorithmParams, extract_alpha_from_image};
-use crate::posterize::named_palette;
 
 /// Process image from memory buffer (JPEG/PNG bytes) to raw RGB output.
 /// Returns 0 on success, negative error codes on failure.
