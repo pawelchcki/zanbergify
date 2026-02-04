@@ -207,14 +207,6 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
 
     // Create deployment marker with timestamp in filename to force upload
     // This ensures Cloudflare API provides upload URLs even when all other files are cached
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let marker_path = output_dir.join(format!(".deployment-{}", timestamp));
-    fs::write(&marker_path, "").context("Failed to write deployment marker")?;
-    println!("  ✓ Created deployment marker");
-
     println!("✓ Site directory ready");
 
     Ok(())
@@ -1022,8 +1014,13 @@ async fn deploy_to_cloudflare(
     println!("✓ Upload token obtained");
 
     // Step 2: Check which file hashes are missing
+    // Exclude special files (_headers, _redirects) - they go directly in deployment FormData
     println!("\nChecking which files need upload...");
-    let hashes: Vec<String> = files.values().map(|(_path, hash)| hash.clone()).collect();
+    let hashes: Vec<String> = files
+        .iter()
+        .filter(|(path, _)| *path != "_headers" && *path != "_redirects")
+        .map(|(_, (_, hash))| hash.clone())
+        .collect();
 
     let check_missing_url =
         "https://api.cloudflare.com/client/v4/pages/assets/check-missing".to_string();
@@ -1140,13 +1137,23 @@ async fn deploy_to_cloudflare(
     println!("\nCreating deployment...");
 
     // Build manifest - wrangler uses leading slashes!
+    // But exclude special files like _headers, _redirects which must be uploaded as File objects
     let mut manifest_map = HashMap::new();
     for (path, (_full_path, hash)) in &files {
+        // Skip special files that need to be uploaded directly
+        if path == "_headers" || path == "_redirects" {
+            continue;
+        }
         manifest_map.insert(format!("/{}", path), hash.clone());
     }
 
     let manifest_json =
         serde_json::to_string(&manifest_map).context("Failed to serialize manifest")?;
+
+    println!("  Manifest has {} entries", manifest_map.len());
+    if manifest_map.len() < 15 {
+        println!("  Manifest: {}", manifest_json);
+    }
 
     let commit_hash = get_git_commit_hash();
     let commit_message = get_git_commit_message();
@@ -1156,15 +1163,39 @@ async fn deploy_to_cloudflare(
         account_id, project_name
     );
 
-    let mut form = reqwest::multipart::Form::new()
-        .text("branch", branch.to_string())
-        .text("manifest", manifest_json);
+    // Build FormData in same order as wrangler
+    let mut form = reqwest::multipart::Form::new().text("manifest", manifest_json);
 
+    if let Some(message) = commit_message {
+        form = form.text("commit_message", message);
+    }
     if let Some(hash) = commit_hash {
         form = form.text("commit_hash", hash);
     }
-    if let Some(message) = commit_message {
-        form = form.text("commit_message", message);
+
+    // Always mark as dirty to match wrangler behavior
+    form = form.text("commit_dirty", "true");
+
+    // Branch after metadata
+    form = form.text("branch", branch.to_string());
+
+    // Add special files as File objects after text fields
+    if let Some((full_path, _hash)) = files.get("_headers") {
+        let content = fs::read(full_path).context("Failed to read _headers")?;
+        form = form.part(
+            "_headers",
+            reqwest::multipart::Part::bytes(content).file_name("_headers"),
+        );
+        println!("  ✓ Including _headers file");
+    }
+
+    if let Some((full_path, _hash)) = files.get("_redirects") {
+        let content = fs::read(full_path).context("Failed to read _redirects")?;
+        form = form.part(
+            "_redirects",
+            reqwest::multipart::Part::bytes(content).file_name("_redirects"),
+        );
+        println!("  ✓ Including _redirects file");
     }
 
     let deployment_response = client
