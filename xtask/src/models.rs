@@ -43,7 +43,7 @@ pub const MODELS: &[ModelInfo] = &[
         url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
         filename: "u2net.onnx",
         size_bytes: 176_631_213,
-        sha256: "60024c5c889badc19c04ad937298a77bc3e72e6a78a0e865a0f46a0e0f3d4c3b",
+        sha256: "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
         input_size: 320,
         description: "U2Net - fast, good quality",
     },
@@ -280,20 +280,17 @@ fn upload_to_r2(name: String, bucket: String) -> Result<()> {
              Get your token from: https://dash.cloudflare.com/profile/api-tokens"
         )?;
 
-    let account_id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
-        .context(
-            "CLOUDFLARE_ACCOUNT_ID not found in environment\n\n\
-             Set it with: export CLOUDFLARE_ACCOUNT_ID=your_account_id"
-        )?;
+    // Upload to R2
+    let rt = tokio::runtime::Runtime::new()?;
+
+    // Get account ID from API
+    let account_id = rt.block_on(crate::wasm::get_account_id(&api_token))?;
 
     let r2_config = crate::r2::R2Config {
         account_id,
         api_token,
         bucket_name: bucket.clone(),
     };
-
-    // Upload to R2
-    let rt = tokio::runtime::Runtime::new()?;
 
     println!("\nUploading model to R2...");
     println!("  Model: {}", model.name);

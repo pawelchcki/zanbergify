@@ -710,7 +710,7 @@ fn check_cloudflare_credentials() -> Result<String> {
     Ok(api_token)
 }
 
-async fn get_account_id(api_token: &str) -> Result<String> {
+pub async fn get_account_id(api_token: &str) -> Result<String> {
     // Check if account ID is explicitly provided
     if let Ok(account_id) = std::env::var("CLOUDFLARE_ACCOUNT_ID") {
         println!("✓ Using account ID from environment: {}", account_id);

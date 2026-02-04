@@ -132,7 +132,7 @@ async function initOnnxRuntime() {
 
         // Configure WASM file paths for WebGPU support
         // Point to CDN where WASM files are hosted
-        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/';
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/';
 
         // Enable WebGPU if available
         ort.env.wasm.numThreads = 4;
@@ -197,10 +197,10 @@ async function loadBundledModel() {
     try {
         await initOnnxRuntime();
 
-        // Always use BiRefNet (hosted on Cloudflare R2 via CDN Worker)
-        currentModelType = 'birefnet';
-        const modelUrl = 'https://zanbergify-models-cdn.pawelchcki.workers.dev/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
-        const cacheKey = `bundled_birefnet`;
+        // Using U2Net for better ONNX Runtime Web compatibility
+        currentModelType = 'u2net';
+        const modelUrl = 'https://zanbergify-models-cdn.pawelchcki.workers.dev/u2net.onnx';
+        const cacheKey = `bundled_u2net`;
 
         let modelData = null;
 
@@ -507,9 +507,13 @@ async function applyMaskToImage(imageBytes, mask, width, height) {
     const imageData = ctx.getImageData(0, 0, width, height);
     const pixels = imageData.data;
 
-    // Apply mask with threshold at 128 (0.5)
+    // Apply mask with configurable threshold
+    const thresholdSlider = document.getElementById('maskThreshold');
+    const thresholdValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
+    const threshold = (thresholdValue / 100) * 255; // Convert 0-100 to 0-255
+
     for (let i = 0; i < mask.length; i++) {
-        const alpha = mask[i] > 128 ? 255 : 0;
+        const alpha = mask[i] > threshold ? 255 : 0;
         pixels[i * 4 + 3] = alpha;
     }
 
@@ -806,6 +810,17 @@ tileSizeSlider.addEventListener('input', (e) => {
 });
 
 // ========== Background Removal Event Handlers ==========
+
+// Mask threshold slider
+const maskThresholdSlider = document.getElementById('maskThreshold');
+const maskThresholdValue = document.getElementById('maskThresholdValue');
+if (maskThresholdSlider && maskThresholdValue) {
+    maskThresholdSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value) / 100;
+        maskThresholdValue.textContent = value.toFixed(2);
+        scheduleAutoProcess();
+    });
+}
 
 // Toggle background removal and auto-load model
 enableRembgCheckbox.addEventListener('change', (e) => {

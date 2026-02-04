@@ -311,13 +311,24 @@
             <div class="control-group full-width">
                 <label>
                     <input type="checkbox" id="enableRembg" style="width: auto; cursor: pointer;">
-                    <span style="font-weight: normal;">Enable Background Removal (BiRefNet Lite - High Quality)</span>
+                    <span style="font-weight: normal;">Enable Background Removal (U2Net - Fast & Accurate)</span>
                 </label>
             </div>
 
             <div id="rembgControls" style="display: none;">
                 <div id="modelStatus" style="padding: 12px; background: #580437; color: white; border-radius: 4px; font-size: 14px; text-align: center; cursor: pointer; transition: all 0.2s;">
-                    Click to load BiRefNet model (1024x1024, high quality)
+                    Click to load U2Net model (320x320, fast processing)
+                </div>
+
+                <div class="control-group" style="margin-top: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label for="maskThreshold">Removal Sensitivity</label>
+                        <span class="slider-value" id="maskThresholdValue">0.50</span>
+                    </div>
+                    <input type="range" id="maskThreshold" min="0" max="100" value="50" step="1">
+                    <div class="param-description">
+                        Lower = Keep more details (body, clothes), Higher = Remove more (keep only main subject)
+                    </div>
                 </div>
             </div>
 
@@ -416,8 +427,8 @@
         </div>
     </div>
 
-    <!-- ONNX Runtime Web (loaded globally) - Using latest version with WebGPU support -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.js"></script>
+    <!-- ONNX Runtime Web (loaded globally) - Using version 1.20.0 for stability -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/ort.min.js"></script>
 
     <script type="module" src="./index.js"></script>
 </body>
