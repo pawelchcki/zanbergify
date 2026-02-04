@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use base64::Engine;
 use clap::{Args, Subcommand};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -626,6 +627,44 @@ fn package_wasm(output: &str, release: bool) -> Result<()> {
 // Deployment Functions
 // ========================================
 
+// Wrangler-style API structures
+
+#[derive(serde::Deserialize, Debug)]
+struct UploadTokenResponse {
+    result: UploadTokenResult,
+    #[allow(dead_code)]
+    success: bool,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct UploadTokenResult {
+    jwt: String,
+}
+
+#[derive(serde::Serialize)]
+struct CheckMissingRequest {
+    hashes: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+struct UploadPayloadFile {
+    key: String,
+    value: String,
+    metadata: FileMetadata,
+    base64: bool,
+}
+
+#[derive(serde::Serialize)]
+struct FileMetadata {
+    #[serde(rename = "contentType")]
+    content_type: String,
+}
+
+#[derive(serde::Serialize)]
+struct UpsertHashesRequest {
+    hashes: Vec<String>,
+}
+
 #[derive(serde::Deserialize, Debug)]
 struct CreateDeploymentResponse {
     result: DeploymentResult,
@@ -638,21 +677,6 @@ struct DeploymentResult {
     id: String,
     #[allow(dead_code)]
     url: String,
-    #[serde(default)]
-    upload_form: Option<UploadForm>,
-    #[serde(default)]
-    files: HashMap<String, FileUploadInfo>,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct UploadForm {
-    url: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct FileUploadInfo {
-    #[serde(default)]
-    upload_url: Option<String>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -959,28 +983,179 @@ async fn deploy_to_cloudflare(
     let files = collect_files(output_dir)?;
     println!("✓ Found {} files", files.len());
 
-    // Create manifest with file hashes
+    let client = reqwest::Client::new();
+
+    // Step 1: Get upload token (JWT)
+    println!("\nGetting upload token...");
+    let token_url = format!(
+        "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/upload-token",
+        account_id, project_name
+    );
+
+    let token_response = client
+        .get(&token_url)
+        .header("Authorization", format!("Bearer {}", api_token))
+        .send()
+        .await
+        .context("Failed to get upload token")?;
+
+    if !token_response.status().is_success() {
+        let status = token_response.status();
+        let body = token_response.text().await.unwrap_or_default();
+        bail!(
+            "Failed to get upload token (status: {})\n\
+             Response: {}\n\n\
+             Possible solutions:\n\
+             - Verify project '{}' exists in Cloudflare Pages dashboard\n\
+             - Check API token has 'Cloudflare Pages' permissions",
+            status,
+            body,
+            project_name
+        );
+    }
+
+    let token_data: UploadTokenResponse = token_response
+        .json()
+        .await
+        .context("Failed to parse upload token response")?;
+    let jwt = token_data.result.jwt;
+    println!("✓ Upload token obtained");
+
+    // Step 2: Check which file hashes are missing
+    println!("\nChecking which files need upload...");
+    let hashes: Vec<String> = files.values().map(|(_path, hash)| hash.clone()).collect();
+
+    let check_missing_url =
+        "https://api.cloudflare.com/client/v4/pages/assets/check-missing".to_string();
+
+    let check_response = client
+        .post(&check_missing_url)
+        .header("Authorization", format!("Bearer {}", jwt))
+        .header("Content-Type", "application/json")
+        .json(&CheckMissingRequest {
+            hashes: hashes.clone(),
+        })
+        .send()
+        .await
+        .context("Failed to check missing hashes")?;
+
+    if !check_response.status().is_success() {
+        let status = check_response.status();
+        let body = check_response.text().await.unwrap_or_default();
+        bail!(
+            "Failed to check missing hashes (status: {}): {}",
+            status,
+            body
+        );
+    }
+
+    let missing_hashes: Vec<String> = check_response
+        .json::<serde_json::Value>()
+        .await
+        .context("Failed to parse check-missing response")?
+        .get("result")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let skipped = files.len() - missing_hashes.len();
+    if skipped > 0 {
+        println!("✓ {} files already cached", skipped);
+    }
+
+    // Step 3: Upload missing files
+    if !missing_hashes.is_empty() {
+        println!("Uploading {} new files...", missing_hashes.len());
+
+        let missing_set: std::collections::HashSet<String> =
+            missing_hashes.iter().cloned().collect();
+
+        // Build upload payload
+        let mut upload_files = Vec::new();
+        for (_path, (full_path, hash)) in &files {
+            if missing_set.contains(hash) {
+                let content = fs::read(full_path)
+                    .context(format!("Failed to read file: {}", full_path.display()))?;
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+
+                upload_files.push(UploadPayloadFile {
+                    key: hash.clone(),
+                    value: encoded,
+                    metadata: FileMetadata {
+                        content_type: get_mime_type(full_path).to_string(),
+                    },
+                    base64: true,
+                });
+            }
+        }
+
+        let upload_url = "https://api.cloudflare.com/client/v4/pages/assets/upload".to_string();
+
+        let upload_response = client
+            .post(&upload_url)
+            .header("Authorization", format!("Bearer {}", jwt))
+            .header("Content-Type", "application/json")
+            .json(&upload_files)
+            .send()
+            .await
+            .context("Failed to upload files")?;
+
+        if !upload_response.status().is_success() {
+            let status = upload_response.status();
+            let body = upload_response.text().await.unwrap_or_default();
+            bail!("Failed to upload files (status: {}): {}", status, body);
+        }
+
+        println!("✓ Files uploaded successfully");
+    } else {
+        println!("✓ No new files to upload");
+    }
+
+    // Step 4: Upsert hashes
+    println!("\nRegistering file hashes...");
+    let upsert_url = "https://api.cloudflare.com/client/v4/pages/assets/upsert-hashes".to_string();
+
+    let upsert_response = client
+        .post(&upsert_url)
+        .header("Authorization", format!("Bearer {}", jwt))
+        .header("Content-Type", "application/json")
+        .json(&UpsertHashesRequest { hashes })
+        .send()
+        .await
+        .context("Failed to upsert hashes")?;
+
+    if !upsert_response.status().is_success() {
+        let status = upsert_response.status();
+        let body = upsert_response.text().await.unwrap_or_default();
+        bail!("Failed to upsert hashes (status: {}): {}", status, body);
+    }
+
+    println!("✓ File hashes registered");
+
+    // Step 5: Create deployment with manifest
+    println!("\nCreating deployment...");
+
+    // Build manifest - wrangler uses leading slashes!
     let mut manifest_map = HashMap::new();
     for (path, (_full_path, hash)) in &files {
-        manifest_map.insert(path.clone(), hash.clone());
+        manifest_map.insert(format!("/{}", path), hash.clone());
     }
+
+    let manifest_json =
+        serde_json::to_string(&manifest_map).context("Failed to serialize manifest")?;
 
     let commit_hash = get_git_commit_hash();
     let commit_message = get_git_commit_message();
 
-    println!("\nCreating deployment...");
-
-    // Serialize manifest to JSON string
-    let manifest_json =
-        serde_json::to_string(&manifest_map).context("Failed to serialize manifest")?;
-
-    let client = reqwest::Client::new();
-    let url = format!(
+    let deployment_url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments",
         account_id, project_name
     );
 
-    // Build multipart form
     let mut form = reqwest::multipart::Form::new()
         .text("branch", branch.to_string())
         .text("manifest", manifest_json);
@@ -992,135 +1167,31 @@ async fn deploy_to_cloudflare(
         form = form.text("commit_message", message);
     }
 
-    let response = client
-        .post(&url)
+    let deployment_response = client
+        .post(&deployment_url)
         .header("Authorization", format!("Bearer {}", api_token))
         .multipart(form)
         .send()
         .await
         .context("Failed to create deployment")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+    if !deployment_response.status().is_success() {
+        let status = deployment_response.status();
+        let body = deployment_response.text().await.unwrap_or_default();
         bail!(
             "Failed to create deployment (status: {})\n\
-             Response: {}\n\n\
-             Possible solutions:\n\
-             - Verify project '{}' exists in Cloudflare Pages dashboard\n\
-             - Check API token has 'Cloudflare Pages' permissions\n\
-             - Verify account ID is correct",
+             Response: {}",
             status,
-            body,
-            project_name
+            body
         );
     }
 
-    let deployment: CreateDeploymentResponse = response
+    let deployment: CreateDeploymentResponse = deployment_response
         .json()
         .await
         .context("Failed to parse deployment response")?;
 
     println!("✓ Deployment created: {}", deployment.result.id);
-
-    // Check if there's an upload form or if all files are already uploaded
-    if deployment.result.upload_form.is_none() && deployment.result.files.is_empty() {
-        println!("\n✓ All files already cached, no upload needed");
-        return Ok(());
-    }
-
-    // Upload files using the upload form or individual URLs
-    println!("\nUploading files...");
-
-    if let Some(upload_form) = &deployment.result.upload_form {
-        // Use multipart upload to upload form URL
-        let pb = indicatif::ProgressBar::new(files.len() as u64);
-        pb.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
-                .unwrap()
-                .progress_chars("=>-"),
-        );
-
-        for (path, (full_path, _hash)) in files {
-            pb.set_message(path.clone());
-
-            let content = fs::read(&full_path)
-                .context(format!("Failed to read file: {}", full_path.display()))?;
-
-            // Upload file using multipart form to the upload URL
-            let form = reqwest::multipart::Form::new().part(
-                path.to_string(),
-                reqwest::multipart::Part::bytes(content).file_name(path.to_string()),
-            );
-
-            let response = client
-                .post(&upload_form.url)
-                .multipart(form)
-                .send()
-                .await
-                .context(format!("Failed to upload file: {}", path))?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                bail!(
-                    "Failed to upload file {} (status: {}): {}",
-                    path,
-                    status,
-                    body
-                );
-            }
-
-            pb.inc(1);
-        }
-
-        pb.finish_with_message("Upload complete");
-    } else {
-        // Use individual file upload URLs from the response
-        let pb = indicatif::ProgressBar::new(deployment.result.files.len() as u64);
-        pb.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
-                .unwrap()
-                .progress_chars("=>-"),
-        );
-
-        for (path, file_info) in &deployment.result.files {
-            if let Some(upload_url) = &file_info.upload_url {
-                pb.set_message(path.clone());
-
-                let (full_path, _hash) = files
-                    .get(path)
-                    .context(format!("File not found in local files: {}", path))?;
-
-                let content = fs::read(full_path)
-                    .context(format!("Failed to read file: {}", full_path.display()))?;
-
-                let response = client
-                    .put(upload_url)
-                    .body(content)
-                    .send()
-                    .await
-                    .context(format!("Failed to upload file: {}", path))?;
-
-                if !response.status().is_success() {
-                    let status = response.status();
-                    let body = response.text().await.unwrap_or_default();
-                    bail!(
-                        "Failed to upload file {} (status: {}): {}",
-                        path,
-                        status,
-                        body
-                    );
-                }
-
-                pb.inc(1);
-            }
-        }
-
-        pb.finish_with_message("Upload complete");
-    }
 
     Ok(())
 }
