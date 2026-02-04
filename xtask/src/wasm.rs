@@ -1,11 +1,11 @@
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
-use sha2::{Sha256, Digest};
 
 use crate::util::project_root;
 
@@ -81,7 +81,11 @@ impl WasmCmd {
     pub fn run(self) -> Result<()> {
         match self.command {
             WasmSubCmd::Build { release } => build_wasm(release),
-            WasmSubCmd::Serve { port, release, open } => serve_wasm(port, release, open),
+            WasmSubCmd::Serve {
+                port,
+                release,
+                open,
+            } => serve_wasm(port, release, open),
             WasmSubCmd::Package { output, release } => package_wasm(&output, release),
             WasmSubCmd::Deploy {
                 branch,
@@ -104,7 +108,10 @@ fn build_wasm(release: bool) -> Result<()> {
     let wasm_dir = project_root.join("zanbergify-wasm");
 
     if !wasm_dir.exists() {
-        bail!("zanbergify-wasm directory not found at {}", wasm_dir.display());
+        bail!(
+            "zanbergify-wasm directory not found at {}",
+            wasm_dir.display()
+        );
     }
 
     println!("Building WASM package...");
@@ -151,11 +158,15 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
 
     // Clean and create output directory
     if output_dir.exists() {
-        fs::remove_dir_all(output_dir)
-            .context(format!("Failed to clean directory: {}", output_dir.display()))?;
+        fs::remove_dir_all(output_dir).context(format!(
+            "Failed to clean directory: {}",
+            output_dir.display()
+        ))?;
     }
-    fs::create_dir_all(output_dir)
-        .context(format!("Failed to create directory: {}", output_dir.display()))?;
+    fs::create_dir_all(output_dir).context(format!(
+        "Failed to create directory: {}",
+        output_dir.display()
+    ))?;
 
     println!("Preparing site directory: {}", output_dir.display());
 
@@ -163,8 +174,7 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
     let src_html = www_dir.join("index.html");
     let dst_html = output_dir.join("index.html");
     if src_html.exists() {
-        fs::copy(&src_html, &dst_html)
-            .context(format!("Failed to copy {}", src_html.display()))?;
+        fs::copy(&src_html, &dst_html).context(format!("Failed to copy {}", src_html.display()))?;
         println!("  ✓ Copied index.html");
     }
 
@@ -203,24 +213,21 @@ fn rewrite_index_js(www_dir: &Path, output_dir: &Path) -> Result<()> {
     let src = www_dir.join("index.js");
     let dst = output_dir.join("index.js");
 
-    let content = fs::read_to_string(&src)
-        .context(format!("Failed to read {}", src.display()))?;
+    let content = fs::read_to_string(&src).context(format!("Failed to read {}", src.display()))?;
 
     // Rewrite import paths: '../pkg/' -> './pkg/'
     let rewritten = content.replace("'../pkg/", "'./pkg/");
 
-    fs::write(&dst, rewritten)
-        .context(format!("Failed to write {}", dst.display()))?;
+    fs::write(&dst, rewritten).context(format!("Failed to write {}", dst.display()))?;
 
     Ok(())
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst)
-        .context(format!("Failed to create directory: {}", dst.display()))?;
+    fs::create_dir_all(dst).context(format!("Failed to create directory: {}", dst.display()))?;
 
-    for entry in fs::read_dir(src)
-        .context(format!("Failed to read directory: {}", src.display()))?
+    for entry in
+        fs::read_dir(src).context(format!("Failed to read directory: {}", src.display()))?
     {
         let entry = entry?;
         let src_path = entry.path();
@@ -300,7 +307,8 @@ fn serve_static_files(server: &tiny_http::Server, root: &Path) -> Result<()> {
         };
 
         // Security: prevent directory traversal
-        let canonical_root = root.canonicalize()
+        let canonical_root = root
+            .canonicalize()
             .context("Failed to canonicalize root directory")?;
 
         let response = if let Ok(canonical_file) = file_path.canonicalize() {
@@ -312,11 +320,7 @@ fn serve_static_files(server: &tiny_http::Server, root: &Path) -> Result<()> {
 
                         // Log request
                         let now = SystemTime::now();
-                        println!("[{}] {} -> {}",
-                            format_time(now),
-                            url_path,
-                            mime_type
-                        );
+                        println!("[{}] {} -> {}", format_time(now), url_path, mime_type);
 
                         let mut response = tiny_http::Response::from_data(data);
 
@@ -326,19 +330,22 @@ fn serve_static_files(server: &tiny_http::Server, root: &Path) -> Result<()> {
                                 tiny_http::Header::from_bytes(
                                     &b"Cross-Origin-Embedder-Policy"[..],
                                     &b"require-corp"[..],
-                                ).unwrap()
+                                )
+                                .unwrap(),
                             )
                             .with_header(
                                 tiny_http::Header::from_bytes(
                                     &b"Cross-Origin-Opener-Policy"[..],
                                     &b"same-origin"[..],
-                                ).unwrap()
+                                )
+                                .unwrap(),
                             )
                             .with_header(
                                 tiny_http::Header::from_bytes(
                                     &b"Content-Type"[..],
                                     mime_type.as_bytes(),
-                                ).unwrap()
+                                )
+                                .unwrap(),
                             );
 
                         response
@@ -351,13 +358,11 @@ fn serve_static_files(server: &tiny_http::Server, root: &Path) -> Result<()> {
                 }
             } else {
                 // File not found or outside root
-                tiny_http::Response::from_string("404 Not Found")
-                    .with_status_code(404)
+                tiny_http::Response::from_string("404 Not Found").with_status_code(404)
             }
         } else {
             // File doesn't exist
-            tiny_http::Response::from_string("404 Not Found")
-                .with_status_code(404)
+            tiny_http::Response::from_string("404 Not Found").with_status_code(404)
         };
 
         if let Err(e) = request.respond(response) {
@@ -439,8 +444,7 @@ fn cleanup_deployments(project_name: &str, keep: usize, yes: bool) -> Result<()>
     let api_token = check_cloudflare_credentials()?;
 
     // Create async runtime
-    let runtime = tokio::runtime::Runtime::new()
-        .context("Failed to create tokio runtime")?;
+    let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
     runtime.block_on(async {
         // Get account ID
@@ -467,7 +471,9 @@ fn cleanup_deployments(project_name: &str, keep: usize, yes: bool) -> Result<()>
             bail!("Failed to fetch deployments (status: {}): {}", status, body);
         }
 
-        let deployments: DeploymentsListResponse = response.json().await
+        let deployments: DeploymentsListResponse = response
+            .json()
+            .await
             .context("Failed to parse deployments")?;
 
         println!("✓ Found {} total deployments\n", deployments.result.len());
@@ -510,7 +516,9 @@ fn cleanup_deployments(project_name: &str, keep: usize, yes: bool) -> Result<()>
         if !prod_to_delete.is_empty() {
             println!("Production ({} to delete):", prod_to_delete.len());
             for dep in &prod_to_delete {
-                let alias = dep.aliases.as_ref()
+                let alias = dep
+                    .aliases
+                    .as_ref()
                     .and_then(|a| a.first())
                     .map(|s| s.as_str())
                     .unwrap_or("no alias");
@@ -522,7 +530,9 @@ fn cleanup_deployments(project_name: &str, keep: usize, yes: bool) -> Result<()>
         if !preview_to_delete.is_empty() {
             println!("Preview ({} to delete):", preview_to_delete.len());
             for dep in &preview_to_delete {
-                let alias = dep.aliases.as_ref()
+                let alias = dep
+                    .aliases
+                    .as_ref()
                     .and_then(|a| a.first())
                     .map(|s| s.as_str())
                     .unwrap_or("no alias");
@@ -550,7 +560,7 @@ fn cleanup_deployments(project_name: &str, keep: usize, yes: bool) -> Result<()>
         let mut failed = 0;
 
         for dep in prod_to_delete.iter().chain(preview_to_delete.iter()) {
-            pb.set_message(format!("{}", dep.short_id));
+            pb.set_message(dep.short_id.to_string());
 
             let delete_url = format!(
                 "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}",
@@ -596,7 +606,10 @@ fn package_wasm(output: &str, release: bool) -> Result<()> {
     println!("  Mode:     {}", if release { "release" } else { "dev" });
     println!("{}", "=".repeat(60));
     println!("\nTo deploy to Cloudflare Pages:");
-    println!("  npx wrangler pages deploy {} --project-name zanbergify", output_dir.display());
+    println!(
+        "  npx wrangler pages deploy {} --project-name zanbergify",
+        output_dir.display()
+    );
     println!();
 
     Ok(())
@@ -711,7 +724,10 @@ fn deploy_with_wrangler(
     println!("  Branch:       {}", branch);
     println!("  Type:         Preview");
     println!("  Source:       {}", output_dir.display());
-    println!("  Mode:         {}", if release { "Release" } else { "Debug" });
+    println!(
+        "  Mode:         {}",
+        if release { "Release" } else { "Debug" }
+    );
     println!("{}", "=".repeat(60));
     println!();
 
@@ -735,20 +751,22 @@ fn deploy_with_wrangler(
     println!("\n{}", "=".repeat(60));
     println!("✓ Deployment Successful");
     println!("{}", "=".repeat(60));
-    println!("  Preview URL:    https://{}.{}.pages.dev", branch, project_name);
+    println!(
+        "  Preview URL:    https://{}.{}.pages.dev",
+        branch, project_name
+    );
     println!();
 
     Ok(())
 }
 
 fn check_cloudflare_credentials() -> Result<String> {
-    let api_token = std::env::var("CLOUDFLARE_API_TOKEN")
-        .context(
-            "CLOUDFLARE_API_TOKEN environment variable not set\n\n\
+    let api_token = std::env::var("CLOUDFLARE_API_TOKEN").context(
+        "CLOUDFLARE_API_TOKEN environment variable not set\n\n\
              Get your API token from: https://dash.cloudflare.com/profile/api-tokens\n\
              Create a token with 'Cloudflare Pages' permissions\n\n\
-             Then set: export CLOUDFLARE_API_TOKEN=your_token"
-        )?;
+             Then set: export CLOUDFLARE_API_TOKEN=your_token",
+    )?;
 
     println!("✓ Cloudflare API token found");
     Ok(api_token)
@@ -779,11 +797,14 @@ async fn get_account_id(api_token: &str) -> Result<String> {
             "Failed to fetch accounts (status: {})\n\
              Response: {}\n\n\
              Check that your API token has correct permissions",
-            status, body
+            status,
+            body
         );
     }
 
-    let accounts: AccountsResponse = response.json().await
+    let accounts: AccountsResponse = response
+        .json()
+        .await
         .context("Failed to parse accounts response")?;
 
     if accounts.result.is_empty() {
@@ -798,7 +819,10 @@ async fn get_account_id(api_token: &str) -> Result<String> {
         for (i, account) in accounts.result.iter().enumerate() {
             println!("  {}. {} ({})", i + 1, account.name, account.id);
         }
-        println!("\nUsing first account: {} ({})", accounts.result[0].name, accounts.result[0].id);
+        println!(
+            "\nUsing first account: {} ({})",
+            accounts.result[0].name, accounts.result[0].id
+        );
         println!("To use a different account, set: export CLOUDFLARE_ACCOUNT_ID=<account_id>");
     }
 
@@ -827,9 +851,7 @@ fn determine_branch(explicit_branch: Option<String>) -> Result<String> {
         );
     }
 
-    let branch = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .to_string();
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     if branch.is_empty() {
         bail!(
@@ -869,8 +891,7 @@ fn get_git_commit_message() -> Option<String> {
 }
 
 fn hash_file(path: &Path) -> Result<String> {
-    let content = fs::read(path)
-        .context(format!("Failed to read file: {}", path.display()))?;
+    let content = fs::read(path).context(format!("Failed to read file: {}", path.display()))?;
 
     let mut hasher = Sha256::new();
     hasher.update(&content);
@@ -887,8 +908,8 @@ fn collect_files(dir: &Path) -> Result<HashMap<String, (PathBuf, String)>> {
         base: &Path,
         files: &mut HashMap<String, (PathBuf, String)>,
     ) -> Result<()> {
-        for entry in fs::read_dir(dir)
-            .context(format!("Failed to read directory: {}", dir.display()))?
+        for entry in
+            fs::read_dir(dir).context(format!("Failed to read directory: {}", dir.display()))?
         {
             let entry = entry?;
             let path = entry.path();
@@ -896,7 +917,8 @@ fn collect_files(dir: &Path) -> Result<HashMap<String, (PathBuf, String)>> {
             if path.is_dir() {
                 visit_dir(&path, base, files)?;
             } else if path.is_file() {
-                let relative = path.strip_prefix(base)
+                let relative = path
+                    .strip_prefix(base)
                     .context("Failed to get relative path")?
                     .to_string_lossy()
                     .replace('\\', "/");
@@ -958,8 +980,7 @@ fn deploy_wasm(
     }
 
     // Execute deployment (async operations)
-    let runtime = tokio::runtime::Runtime::new()
-        .context("Failed to create tokio runtime")?;
+    let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
     runtime.block_on(async {
         // Fetch account ID (or use from env)
@@ -971,20 +992,24 @@ fn deploy_wasm(
         println!("{}", "=".repeat(60));
         println!("  Project:      {}", project_name);
         println!("  Branch:       {}", branch);
-        println!("  Type:         {}", if is_production { "Production" } else { "Preview" });
+        println!(
+            "  Type:         {}",
+            if is_production {
+                "Production"
+            } else {
+                "Preview"
+            }
+        );
         println!("  Source:       {}", output_dir.display());
-        println!("  Mode:         {}", if release { "Release" } else { "Debug" });
+        println!(
+            "  Mode:         {}",
+            if release { "Release" } else { "Debug" }
+        );
         println!("{}", "=".repeat(60));
         println!();
 
         // Execute deployment
-        deploy_to_cloudflare(
-            &output_dir,
-            project_name,
-            &branch,
-            &api_token,
-            &account_id,
-        ).await?;
+        deploy_to_cloudflare(&output_dir, project_name, &branch, &api_token, &account_id).await?;
 
         // Success message
         println!("\n{}", "=".repeat(60));
@@ -994,7 +1019,10 @@ fn deploy_wasm(
         if is_production {
             println!("  Production URL: https://{}.pages.dev", project_name);
         } else {
-            println!("  Preview URL:    https://{}.{}.pages.dev", branch, project_name);
+            println!(
+                "  Preview URL:    https://{}.{}.pages.dev",
+                branch, project_name
+            );
         }
 
         println!();
@@ -1026,8 +1054,8 @@ async fn deploy_to_cloudflare(
     println!("\nCreating deployment...");
 
     // Serialize manifest to JSON string
-    let manifest_json = serde_json::to_string(&manifest_map)
-        .context("Failed to serialize manifest")?;
+    let manifest_json =
+        serde_json::to_string(&manifest_map).context("Failed to serialize manifest")?;
 
     let client = reqwest::Client::new();
     let url = format!(
@@ -1065,11 +1093,15 @@ async fn deploy_to_cloudflare(
              - Verify project '{}' exists in Cloudflare Pages dashboard\n\
              - Check API token has 'Cloudflare Pages' permissions\n\
              - Verify account ID is correct",
-            status, body, project_name
+            status,
+            body,
+            project_name
         );
     }
 
-    let deployment: CreateDeploymentResponse = response.json().await
+    let deployment: CreateDeploymentResponse = response
+        .json()
+        .await
         .context("Failed to parse deployment response")?;
 
     println!("✓ Deployment created: {}", deployment.result.id);
@@ -1100,12 +1132,10 @@ async fn deploy_to_cloudflare(
                 .context(format!("Failed to read file: {}", full_path.display()))?;
 
             // Upload file using multipart form to the upload URL
-            let form = reqwest::multipart::Form::new()
-                .part(
-                    path.to_string(),
-                    reqwest::multipart::Part::bytes(content)
-                        .file_name(path.to_string()),
-                );
+            let form = reqwest::multipart::Form::new().part(
+                path.to_string(),
+                reqwest::multipart::Part::bytes(content).file_name(path.to_string()),
+            );
 
             let response = client
                 .post(&upload_form.url)
@@ -1117,7 +1147,12 @@ async fn deploy_to_cloudflare(
             if !response.status().is_success() {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
-                bail!("Failed to upload file {} (status: {}): {}", path, status, body);
+                bail!(
+                    "Failed to upload file {} (status: {}): {}",
+                    path,
+                    status,
+                    body
+                );
             }
 
             pb.inc(1);
@@ -1138,7 +1173,8 @@ async fn deploy_to_cloudflare(
             if let Some(upload_url) = &file_info.upload_url {
                 pb.set_message(path.clone());
 
-                let (full_path, _hash) = files.get(path)
+                let (full_path, _hash) = files
+                    .get(path)
                     .context(format!("File not found in local files: {}", path))?;
 
                 let content = fs::read(full_path)
@@ -1154,7 +1190,12 @@ async fn deploy_to_cloudflare(
                 if !response.status().is_success() {
                     let status = response.status();
                     let body = response.text().await.unwrap_or_default();
-                    bail!("Failed to upload file {} (status: {}): {}", path, status, body);
+                    bail!(
+                        "Failed to upload file {} (status: {}): {}",
+                        path,
+                        status,
+                        body
+                    );
                 }
 
                 pb.inc(1);
