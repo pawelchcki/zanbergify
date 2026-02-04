@@ -6,6 +6,9 @@ pub mod exif_orientation;
 #[cfg(all(not(target_arch = "wasm32"), feature = "rembg"))]
 pub mod ffi;
 
+#[cfg(feature = "flutter_ffi")]
+pub mod flutter_ffi;
+
 pub mod pipeline;
 pub mod posterize;
 
