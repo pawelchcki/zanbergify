@@ -140,7 +140,7 @@ class Zanbergify {
   static String _getErrorMessage(int code) {
     switch (code) {
       case -1:
-        return 'Invalid preset name encoding or failed to decode image';
+        return 'Invalid preset name encoding';
       case -2:
         return 'Invalid palette name encoding';
       case -3:

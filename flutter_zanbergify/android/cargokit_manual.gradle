@@ -47,8 +47,17 @@ if (flutterProject != null && flutterProject.hasProperty('android')) {
 
         // Default platforms if none specified
         if (platforms.isEmpty()) {
-            // Only build for aarch64 (64-bit ARM) to speed up builds
-            platforms = ['android-arm64']
+            // Check if this is a final_release build that needs all ABIs
+            if (buildType == 'final_release') {
+                // Build all ABIs for final release (production distribution)
+                platforms = ['android-arm', 'android-arm64', 'android-x86', 'android-x86-64']
+                println("Building all ABIs for final_release: ${platforms}")
+            } else {
+                // Only build for aarch64 (64-bit ARM) to speed up development/testing
+                // This covers most modern Android devices
+                platforms = ['android-arm64']
+                println("Building aarch64 only for ${buildType} (use final_release for all ABIs)")
+            }
         }
 
         def taskName = "cargokitCargoBuild${libname.capitalize()}${buildType.capitalize()}"

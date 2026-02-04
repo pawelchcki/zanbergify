@@ -99,7 +99,7 @@ pub unsafe extern "C" fn zanbergify_get_output_size(
     let input_slice = unsafe { std::slice::from_raw_parts(input_data, input_len) };
     let img = match image::load_from_memory(input_slice) {
         Ok(img) => img,
-        Err(_) => return -1, // Failed to decode
+        Err(_) => return -3, // Failed to decode image (consistent with zanbergify_process_bytes)
     };
 
     // Apply EXIF orientation correction to get correct dimensions
