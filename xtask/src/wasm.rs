@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::util::project_root;
 
@@ -204,6 +204,16 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
     copy_dir_recursive(&pkg_dir, &dst_pkg)?;
     println!("  ✓ Copied pkg/");
 
+    // Create deployment marker with timestamp in filename to force upload
+    // This ensures Cloudflare API provides upload URLs even when all other files are cached
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let marker_path = output_dir.join(format!(".deployment-{}", timestamp));
+    fs::write(&marker_path, "").context("Failed to write deployment marker")?;
+    println!("  ✓ Created deployment marker");
+
     println!("✓ Site directory ready");
 
     Ok(())
@@ -331,21 +341,21 @@ fn serve_static_files(server: &tiny_http::Server, root: &Path) -> Result<()> {
                                     &b"Cross-Origin-Embedder-Policy"[..],
                                     &b"require-corp"[..],
                                 )
-                                .unwrap(),
+                                .expect("Header name is valid ASCII"),
                             )
                             .with_header(
                                 tiny_http::Header::from_bytes(
                                     &b"Cross-Origin-Opener-Policy"[..],
                                     &b"same-origin"[..],
                                 )
-                                .unwrap(),
+                                .expect("Header name is valid ASCII"),
                             )
                             .with_header(
                                 tiny_http::Header::from_bytes(
                                     &b"Content-Type"[..],
                                     mime_type.as_bytes(),
                                 )
-                                .unwrap(),
+                                .expect("Header name is valid ASCII"),
                             );
 
                         response
@@ -371,7 +381,7 @@ fn serve_static_files(server: &tiny_http::Server, root: &Path) -> Result<()> {
     }
 }
 
-fn get_mime_type(path: &Path) -> String {
+fn get_mime_type(path: &Path) -> &'static str {
     match path.extension().and_then(|s| s.to_str()) {
         Some("html") => "text/html",
         Some("js") => "application/javascript",
@@ -385,12 +395,9 @@ fn get_mime_type(path: &Path) -> String {
         Some("onnx") => "application/octet-stream",
         _ => "application/octet-stream",
     }
-    .to_string()
 }
 
 fn format_time(time: SystemTime) -> String {
-    use std::time::UNIX_EPOCH;
-
     if let Ok(duration) = time.duration_since(UNIX_EPOCH) {
         let secs = duration.as_secs();
         let hours = (secs / 3600) % 24;
@@ -676,90 +683,6 @@ struct Account {
     name: String,
 }
 
-fn deploy_with_wrangler(
-    branch: &str,
-    project_name: &str,
-    output: &str,
-    skip_package: bool,
-    release: bool,
-) -> Result<()> {
-    // Check if wrangler is installed
-    let output_check = Command::new("which")
-        .arg("wrangler")
-        .output()
-        .context("Failed to check for wrangler")?;
-
-    if !output_check.status.success() {
-        bail!(
-            "Wrangler is required for preview deployments\n\n\
-             Install with: npm install -g wrangler\n\
-             Or: curl -fsSL https://workers.cloudflare.com/get-wrangler | bash\n\n\
-             Alternatively, deploy to production branch (main/master) to use API deployment"
-        );
-    }
-
-    let project_root = project_root();
-    let output_dir = project_root.join(output);
-
-    // Package if needed
-    if !skip_package {
-        println!("\nPackaging WASM site...");
-        prepare_site_dir(&output_dir, release)?;
-        println!("✓ Packaging complete");
-    } else {
-        if !output_dir.exists() {
-            bail!(
-                "Output directory does not exist: {}\n\n\
-                 Run without --skip-package to build first",
-                output_dir.display()
-            );
-        }
-        println!("✓ Using pre-packaged files from: {}", output_dir.display());
-    }
-
-    println!("\n{}", "=".repeat(60));
-    println!("Deploying to Cloudflare Pages (via Wrangler)");
-    println!("{}", "=".repeat(60));
-    println!("  Project:      {}", project_name);
-    println!("  Branch:       {}", branch);
-    println!("  Type:         Preview");
-    println!("  Source:       {}", output_dir.display());
-    println!(
-        "  Mode:         {}",
-        if release { "Release" } else { "Debug" }
-    );
-    println!("{}", "=".repeat(60));
-    println!();
-
-    // Deploy with wrangler
-    let status = Command::new("wrangler")
-        .arg("pages")
-        .arg("deploy")
-        .arg(&output_dir)
-        .arg("--project-name")
-        .arg(project_name)
-        .arg("--branch")
-        .arg(branch)
-        .arg("--commit-dirty=true")
-        .status()
-        .context("Failed to execute wrangler")?;
-
-    if !status.success() {
-        bail!("Wrangler deployment failed");
-    }
-
-    println!("\n{}", "=".repeat(60));
-    println!("✓ Deployment Successful");
-    println!("{}", "=".repeat(60));
-    println!(
-        "  Preview URL:    https://{}.{}.pages.dev",
-        branch, project_name
-    );
-    println!();
-
-    Ok(())
-}
-
 fn check_cloudflare_credentials() -> Result<String> {
     let api_token = std::env::var("CLOUDFLARE_API_TOKEN").context(
         "CLOUDFLARE_API_TOKEN environment variable not set\n\n\
@@ -947,18 +870,12 @@ fn deploy_wasm(
     println!("WASM Deployment");
     println!("{}", "=".repeat(60));
 
-    // Determine deployment target first
+    // Pre-flight checks
+    let api_token = check_cloudflare_credentials()?;
+
+    // Determine deployment target
     let branch = determine_branch(branch)?;
     let is_production = branch == "main" || branch == "master";
-
-    // For preview deployments, use wrangler (API has known issues with cached files)
-    if !is_production {
-        println!("\nℹ️  Preview deployments use wrangler CLI due to Cloudflare API limitations");
-        return deploy_with_wrangler(&branch, project_name, output, skip_package, release);
-    }
-
-    // Pre-flight checks for API deployment
-    let api_token = check_cloudflare_credentials()?;
 
     let project_root = project_root();
     let output_dir = project_root.join(output);
