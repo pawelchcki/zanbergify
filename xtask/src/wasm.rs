@@ -1,7 +1,6 @@
 use anyhow::{bail, Context, Result};
 use base64::Engine;
 use clap::{Args, Subcommand};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -831,12 +830,8 @@ fn get_git_commit_message() -> Option<String> {
 
 fn hash_file(path: &Path) -> Result<String> {
     let content = fs::read(path).context(format!("Failed to read file: {}", path.display()))?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&content);
-    let hash = hasher.finalize();
-
-    Ok(hex::encode(hash))
+    let hash = md5::compute(&content);
+    Ok(format!("{:x}", hash))
 }
 
 fn collect_files(dir: &Path) -> Result<HashMap<String, (PathBuf, String)>> {
