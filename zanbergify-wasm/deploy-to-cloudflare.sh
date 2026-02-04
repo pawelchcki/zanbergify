@@ -31,6 +31,15 @@ cp pkg/zanbergify_wasm_bg.wasm "$DEPLOY_DIR/pkg/"
 cp pkg/zanbergify_wasm.d.ts "$DEPLOY_DIR/pkg/" 2>/dev/null || true
 cp pkg/zanbergify_wasm_bg.wasm.d.ts "$DEPLOY_DIR/pkg/" 2>/dev/null || true
 
+# Copy models directory if it exists
+if [ -d "www/models" ]; then
+  echo "🤖 Copying ML models..."
+  mkdir -p "$DEPLOY_DIR/models"
+  cp -r www/models/* "$DEPLOY_DIR/models/" 2>/dev/null || echo "⚠️  Warning: No models found in www/models/"
+else
+  echo "⚠️  Warning: www/models directory not found"
+fi
+
 # Deploy to Cloudflare Pages
 echo "☁️  Deploying to Cloudflare Pages..."
 wrangler pages deploy "$DEPLOY_DIR" --project-name="$PROJECT_NAME" --branch=main --commit-dirty=true
