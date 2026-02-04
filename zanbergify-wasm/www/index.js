@@ -507,10 +507,13 @@ async function applyMaskToImage(imageBytes, mask, width, height) {
     const imageData = ctx.getImageData(0, 0, width, height);
     const pixels = imageData.data;
 
-    // Apply mask with configurable threshold
+    // Apply mask with configurable threshold (exponential curve)
     const thresholdSlider = document.getElementById('maskThreshold');
-    const thresholdValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
-    const threshold = (thresholdValue / 100) * 255; // Convert 0-100 to 0-255
+    const sliderValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
+    const normalized = (sliderValue - 30) / 50; // Normalize to 0-1
+    const curved = Math.pow(normalized, 1.5); // Apply exponential curve
+    const thresholdRatio = 0.30 + (curved * 0.50); // Map to 0.30-0.80
+    const threshold = thresholdRatio * 255; // Convert to 0-255 range
 
     for (let i = 0; i < mask.length; i++) {
         const alpha = mask[i] > threshold ? 255 : 0;
@@ -811,13 +814,17 @@ tileSizeSlider.addEventListener('input', (e) => {
 
 // ========== Background Removal Event Handlers ==========
 
-// Mask threshold slider
+// Mask threshold slider with exponential curve for better sensitivity distribution
 const maskThresholdSlider = document.getElementById('maskThreshold');
 const maskThresholdValue = document.getElementById('maskThresholdValue');
 if (maskThresholdSlider && maskThresholdValue) {
     maskThresholdSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value) / 100;
-        maskThresholdValue.textContent = value.toFixed(2);
+        const sliderValue = parseInt(e.target.value);
+        // Map 30-80 range with slight exponential curve for smoother control
+        const normalized = (sliderValue - 30) / 50; // 0-1 range
+        const curved = Math.pow(normalized, 1.5); // Exponential curve
+        const threshold = 0.30 + (curved * 0.50); // Map to 0.30-0.80 range
+        maskThresholdValue.textContent = threshold.toFixed(2);
         scheduleAutoProcess();
     });
 }
