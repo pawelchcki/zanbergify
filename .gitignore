@@ -6,6 +6,9 @@ dist/
 # Large ONNX models should not be committed
 **/*.onnx
 
+# Model directories
+zanbergify-wasm/www/models/*.onnx
+
 # Python
 __pycache__/
 *.py[cod]
@@ -26,11 +29,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual environments
-.venv/
-venv/
-ENV/
 
 # IDE
 .idea/

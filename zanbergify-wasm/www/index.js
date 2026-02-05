@@ -132,7 +132,7 @@ async function initOnnxRuntime() {
 
         // Configure WASM file paths for WebGPU support
         // Point to CDN where WASM files are hosted
-        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/';
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/';
 
         // Enable WebGPU if available
         ort.env.wasm.numThreads = 4;
@@ -197,10 +197,10 @@ async function loadBundledModel() {
     try {
         await initOnnxRuntime();
 
-        // Always use BiRefNet
-        currentModelType = 'birefnet';
-        const modelUrl = 'models/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
-        const cacheKey = `bundled_birefnet`;
+        // Using U2Net for better ONNX Runtime Web compatibility
+        currentModelType = 'u2net';
+        const modelUrl = 'https://zanbergify-models-cdn.pawelchcki.workers.dev/u2net.onnx';
+        const cacheKey = `bundled_u2net`;
 
         let modelData = null;
 
@@ -507,9 +507,16 @@ async function applyMaskToImage(imageBytes, mask, width, height) {
     const imageData = ctx.getImageData(0, 0, width, height);
     const pixels = imageData.data;
 
-    // Apply mask with threshold at 128 (0.5)
+    // Apply mask with configurable threshold (exponential curve)
+    const thresholdSlider = document.getElementById('maskThreshold');
+    const sliderValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
+    const normalized = (sliderValue - 30) / 50; // Normalize to 0-1
+    const curved = Math.pow(normalized, 1.5); // Apply exponential curve
+    const thresholdRatio = 0.30 + (curved * 0.50); // Map to 0.30-0.80
+    const threshold = thresholdRatio * 255; // Convert to 0-255 range
+
     for (let i = 0; i < mask.length; i++) {
-        const alpha = mask[i] > 128 ? 255 : 0;
+        const alpha = mask[i] > threshold ? 255 : 0;
         pixels[i * 4 + 3] = alpha;
     }
 
@@ -806,6 +813,21 @@ tileSizeSlider.addEventListener('input', (e) => {
 });
 
 // ========== Background Removal Event Handlers ==========
+
+// Mask threshold slider with exponential curve for better sensitivity distribution
+const maskThresholdSlider = document.getElementById('maskThreshold');
+const maskThresholdValue = document.getElementById('maskThresholdValue');
+if (maskThresholdSlider && maskThresholdValue) {
+    maskThresholdSlider.addEventListener('input', (e) => {
+        const sliderValue = parseInt(e.target.value);
+        // Map 30-80 range with slight exponential curve for smoother control
+        const normalized = (sliderValue - 30) / 50; // 0-1 range
+        const curved = Math.pow(normalized, 1.5); // Exponential curve
+        const threshold = 0.30 + (curved * 0.50); // Map to 0.30-0.80 range
+        maskThresholdValue.textContent = threshold.toFixed(2);
+        scheduleAutoProcess();
+    });
+}
 
 // Toggle background removal and auto-load model
 enableRembgCheckbox.addEventListener('change', (e) => {

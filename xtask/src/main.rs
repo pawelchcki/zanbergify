@@ -4,8 +4,10 @@ use clap::Parser;
 mod cache;
 mod download;
 mod models;
+mod r2;
 mod util;
 mod verify;
+mod wasm;
 mod wasm_bundle;
 
 #[derive(Parser)]
@@ -20,6 +22,8 @@ struct Cli {
 enum Command {
     /// Model management commands
     Models(models::ModelsCmd),
+    /// WASM build and serve commands
+    Wasm(wasm::WasmCmd),
 }
 
 fn main() -> Result<()> {
@@ -27,6 +31,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Models(cmd) => cmd.run()?,
+        Command::Wasm(cmd) => cmd.run()?,
     }
 
     Ok(())
