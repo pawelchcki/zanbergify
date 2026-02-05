@@ -551,7 +551,7 @@ fn cleanup_deployments(project_name: &str, keep: usize, yes: bool) -> Result<()>
         pb.set_style(
             indicatif::ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
-                .unwrap()
+                .expect("Progress bar template is valid")
                 .progress_chars("=>-"),
         );
 
@@ -1123,7 +1123,7 @@ async fn deploy_to_cloudflare(
             println!("  Uploading {} large files individually...", large_files.len());
 
             for (i, (full_path, hash, size)) in large_files.iter().enumerate() {
-                let filename = full_path.file_name().unwrap().to_string_lossy();
+                let filename = full_path.file_name().expect("File path has a valid name").to_string_lossy();
                 println!("    [{}/{}] {} ({:.1} MB)...",
                     i + 1,
                     large_files.len(),
