@@ -1071,7 +1071,7 @@ async fn deploy_to_cloudflare(
         let mut small_files = Vec::new();
         let mut large_files = Vec::new();
 
-        for (_path, (full_path, hash)) in &files {
+        for (full_path, hash) in files.values() {
             if missing_set.contains(hash) {
                 let file_size = fs::metadata(full_path)
                     .context(format!("Failed to get file size: {}", full_path.display()))?
@@ -1113,18 +1113,29 @@ async fn deploy_to_cloudflare(
             if !upload_response.status().is_success() {
                 let status = upload_response.status();
                 let body = upload_response.text().await.unwrap_or_default();
-                bail!("Failed to upload small files (status: {}): {}", status, body);
+                bail!(
+                    "Failed to upload small files (status: {}): {}",
+                    status,
+                    body
+                );
             }
             println!("  ✓ Small files uploaded");
         }
 
         // Upload large files individually using direct PUT
         if !large_files.is_empty() {
-            println!("  Uploading {} large files individually...", large_files.len());
+            println!(
+                "  Uploading {} large files individually...",
+                large_files.len()
+            );
 
             for (i, (full_path, hash, size)) in large_files.iter().enumerate() {
-                let filename = full_path.file_name().expect("File path has a valid name").to_string_lossy();
-                println!("    [{}/{}] {} ({:.1} MB)...",
+                let filename = full_path
+                    .file_name()
+                    .expect("File path has a valid name")
+                    .to_string_lossy();
+                println!(
+                    "    [{}/{}] {} ({:.1} MB)...",
                     i + 1,
                     large_files.len(),
                     filename,
@@ -1135,7 +1146,8 @@ async fn deploy_to_cloudflare(
                     .context(format!("Failed to read file: {}", full_path.display()))?;
 
                 // Try uploading with binary body instead of base64 JSON
-                let upload_url = format!("https://api.cloudflare.com/client/v4/pages/assets/{}", hash);
+                let upload_url =
+                    format!("https://api.cloudflare.com/client/v4/pages/assets/{}", hash);
 
                 let upload_response = client
                     .put(&upload_url)
@@ -1165,7 +1177,8 @@ async fn deploy_to_cloudflare(
                             base64: true,
                         }];
 
-                        let upload_url = "https://api.cloudflare.com/client/v4/pages/assets/upload".to_string();
+                        let upload_url =
+                            "https://api.cloudflare.com/client/v4/pages/assets/upload".to_string();
                         let resp = client
                             .post(&upload_url)
                             .header("Authorization", format!("Bearer {}", jwt))
@@ -1178,7 +1191,12 @@ async fn deploy_to_cloudflare(
                         if !resp.status().is_success() {
                             let status = resp.status();
                             let body = resp.text().await.unwrap_or_default();
-                            bail!("Failed to upload large file {} (status: {}): {}", filename, status, body);
+                            bail!(
+                                "Failed to upload large file {} (status: {}): {}",
+                                filename,
+                                status,
+                                body
+                            );
                         }
                         println!("      ✓ Uploaded via JSON");
                         Ok(())

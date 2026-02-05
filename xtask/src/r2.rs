@@ -1,6 +1,6 @@
-use anyhow::{Context, Result, bail};
-use std::path::Path;
+use anyhow::{bail, Context, Result};
 use std::fs;
+use std::path::Path;
 
 pub struct R2Config {
     pub account_id: String,
@@ -14,14 +14,17 @@ pub async fn upload_file_to_r2(
     object_key: &str,
     content_type: &str,
 ) -> Result<String> {
-    println!("Uploading {} to R2 bucket '{}'...", object_key, config.bucket_name);
+    println!(
+        "Uploading {} to R2 bucket '{}'...",
+        object_key, config.bucket_name
+    );
 
     let client = reqwest::Client::new();
 
     // Read file
     let file_size = fs::metadata(local_path)?.len();
-    let content = fs::read(local_path)
-        .context(format!("Failed to read file: {}", local_path.display()))?;
+    let content =
+        fs::read(local_path).context(format!("Failed to read file: {}", local_path.display()))?;
 
     println!("  File size: {:.1} MB", file_size as f64 / 1_048_576.0);
 
@@ -56,9 +59,7 @@ pub async fn upload_file_to_r2(
     // Or using custom domain if configured
     let public_url = format!(
         "https://{}.{}.r2.cloudflarestorage.com/{}",
-        config.bucket_name,
-        config.account_id,
-        object_key
+        config.bucket_name, config.account_id, object_key
     );
 
     Ok(public_url)
@@ -79,8 +80,7 @@ pub async fn set_bucket_cors(config: &R2Config) -> Result<()> {
 
     let url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets/{}/cors",
-        config.account_id,
-        config.bucket_name
+        config.account_id, config.bucket_name
     );
 
     let response = client
@@ -103,7 +103,10 @@ pub async fn set_bucket_cors(config: &R2Config) -> Result<()> {
 }
 
 pub async fn make_bucket_public(config: &R2Config) -> Result<()> {
-    println!("Making R2 bucket '{}' publicly accessible...", config.bucket_name);
+    println!(
+        "Making R2 bucket '{}' publicly accessible...",
+        config.bucket_name
+    );
 
     let client = reqwest::Client::new();
 
@@ -114,8 +117,7 @@ pub async fn make_bucket_public(config: &R2Config) -> Result<()> {
 
     let url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets/{}/public",
-        config.account_id,
-        config.bucket_name
+        config.account_id, config.bucket_name
     );
 
     let response = client
@@ -137,7 +139,11 @@ pub async fn make_bucket_public(config: &R2Config) -> Result<()> {
             return Ok(());
         }
 
-        bail!("Failed to enable public access (status: {}): {}", status, body);
+        bail!(
+            "Failed to enable public access (status: {}): {}",
+            status,
+            body
+        );
     }
 
     println!("  ✓ Bucket is now public");

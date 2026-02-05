@@ -277,7 +277,7 @@ fn upload_to_r2(name: String, bucket: String) -> Result<()> {
         .context(
             "CLOUDFLARE_API_TOKEN not found in environment\n\n\
              Set it with: export CLOUDFLARE_API_TOKEN=your_token_here\n\
-             Get your token from: https://dash.cloudflare.com/profile/api-tokens"
+             Get your token from: https://dash.cloudflare.com/profile/api-tokens",
         )?;
 
     // Upload to R2
@@ -300,7 +300,10 @@ fn upload_to_r2(name: String, bucket: String) -> Result<()> {
     let public_url = rt.block_on(async {
         // First, ensure CORS is configured
         if let Err(e) = crate::r2::set_bucket_cors(&r2_config).await {
-            println!("Warning: Could not set CORS (bucket may not exist or already configured): {}", e);
+            println!(
+                "Warning: Could not set CORS (bucket may not exist or already configured): {}",
+                e
+            );
         }
 
         // Make bucket public
@@ -314,7 +317,8 @@ fn upload_to_r2(name: String, bucket: String) -> Result<()> {
             &model_path,
             model.filename,
             "application/octet-stream",
-        ).await
+        )
+        .await
     })?;
 
     println!("\n✓ Model uploaded successfully!");
