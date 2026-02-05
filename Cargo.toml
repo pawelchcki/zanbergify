@@ -1,5 +1,5 @@
 [workspace]
-members = ["zanbergify-core", "zanbergify-cli", "zanbergify-wasm", "xtask"]
+members = ["zanbergify-core", "zanbergify-cli", "zanbergify-wasm", "xtask", "flutter_zanbergify/rust"]
 resolver = "2"
 
 [profile.release]

@@ -1,0 +1,16 @@
+[package]
+name = "flutter_zanbergify"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+zanbergify-core = { path = "../../zanbergify-core", default-features = false, features = ["flutter_ffi"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

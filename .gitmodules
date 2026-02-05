@@ -1,0 +1,3 @@
+[submodule "flutter_zanbergify/cargokit"]
+	path = flutter_zanbergify/cargokit
+	url = https://github.com/irondash/cargokit.git

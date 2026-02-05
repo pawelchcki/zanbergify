@@ -1,0 +1,103 @@
+// Manual Cargokit integration for FFI plugins
+// This bypasses the Flutter plugin detection and manually sets up the build tasks
+
+import java.nio.file.Paths
+import org.apache.tools.ant.taskdefs.condition.Os
+
+// Find the root Flutter project (where the app is)
+def findFlutterProject(Project project) {
+    def current = project
+    while (current != null) {
+        if (current.hasProperty('flutter')) {
+            return current
+        }
+        current = current.parent
+    }
+    return null
+}
+
+def flutterProject = project.rootProject.subprojects.find { it.name == 'app' }
+
+if (flutterProject != null && flutterProject.hasProperty('android')) {
+    println("Found Flutter app project: ${flutterProject.name}")
+
+    def cargokitRoot = new File(project.projectDir, "../cargokit")
+    def manifestDir = new File(project.projectDir, "../rust")
+    def libname = "flutter_zanbergify"
+
+    // Create Cargokit tasks for each build variant
+    def variants = flutterProject.android.applicationVariants
+
+    variants.all { variant ->
+        def buildType = variant.buildType.name
+        def cargoBuildDir = "${project.buildDir}/cargokit_build"
+        def cargoOutputDir = "${project.buildDir}/jniLibs/${buildType}"
+
+        // Create output directory in plugin's jniLibs
+        def jniLibs = project.android.sourceSets.maybeCreate(buildType).jniLibs
+        jniLibs.srcDir(new File(cargoOutputDir))
+
+        // Get target platforms from Flutter
+        def platforms = []
+        variant.productFlavors.each { flavor ->
+            if (flavor.hasProperty('targetPlatforms')) {
+                platforms.addAll(flavor.targetPlatforms)
+            }
+        }
+
+        // Default platforms if none specified
+        if (platforms.isEmpty()) {
+            // Check if this is a final_release build that needs all ABIs
+            if (buildType == 'final_release') {
+                // Build all ABIs for final release (production distribution)
+                platforms = ['android-arm', 'android-arm64', 'android-x86', 'android-x86-64']
+                println("Building all ABIs for final_release: ${platforms}")
+            } else {
+                // Only build for aarch64 (64-bit ARM) to speed up development/testing
+                // This covers most modern Android devices
+                platforms = ['android-arm64']
+                println("Building aarch64 only for ${buildType} (use final_release for all ABIs)")
+            }
+        }
+
+        def taskName = "cargokitCargoBuild${libname.capitalize()}${buildType.capitalize()}"
+
+        if (!project.tasks.findByName(taskName)) {
+            def buildTask = project.tasks.create(taskName, Exec) {
+                description = "Build Rust library for ${buildType}"
+
+                def executableName = Os.isFamily(Os.FAMILY_WINDOWS) ? "run_build_tool.cmd" : "run_build_tool.sh"
+                def scriptPath = new File(cargokitRoot, executableName)
+
+                // Make executable on Unix
+                if (!Os.isFamily(Os.FAMILY_WINDOWS)) {
+                    project.exec {
+                        commandLine 'chmod', '+x', scriptPath
+                    }
+                }
+
+                commandLine scriptPath, "build-gradle"
+
+                environment "CARGOKIT_ROOT_PROJECT_DIR", project.rootProject.projectDir
+                environment "CARGOKIT_TOOL_TEMP_DIR", "${cargoBuildDir}/build_tool"
+                environment "CARGOKIT_MANIFEST_DIR", manifestDir
+                environment "CARGOKIT_CONFIGURATION", buildType
+                environment "CARGOKIT_TARGET_TEMP_DIR", cargoBuildDir
+                environment "CARGOKIT_OUTPUT_DIR", cargoOutputDir
+                environment "CARGOKIT_NDK_VERSION", flutterProject.android.ndkVersion ?: "25.0.0"
+                environment "CARGOKIT_SDK_DIR", flutterProject.android.sdkDirectory
+                environment "CARGOKIT_COMPILE_SDK_VERSION", flutterProject.android.compileSdk
+                environment "CARGOKIT_MIN_SDK_VERSION", flutterProject.android.defaultConfig.minSdk
+                environment "CARGOKIT_TARGET_PLATFORMS", platforms.join(",")
+                environment "CARGOKIT_JAVA_HOME", System.properties['java.home']
+            }
+
+            // Make build tasks depend on our Rust build
+            project.tasks.matching { it.name.contains("merge${buildType.capitalize()}JniLibFolders") }.all {
+                it.dependsOn(buildTask)
+            }
+        }
+    }
+} else {
+    println("Warning: Could not find Flutter app project for Cargokit integration")
+}

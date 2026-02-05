@@ -2802,6 +2802,7 @@ dependencies = [
  "kamadak-exif",
  "ndarray",
  "ort",
+ "serde_json",
 ]
 
 [[package]]
