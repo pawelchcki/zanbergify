@@ -16,10 +16,10 @@ use crate::util::project_root;
 /// Represents a file in memory with its deployment path and content
 #[derive(Clone)]
 struct VirtualFile {
-    path: String,       // Deployment path (relative, no leading slash)
-    content: Vec<u8>,   // File content in bytes
-    hash: String,       // MD5 hash (computed on creation)
-    mime_type: String,  // MIME type for Content-Type header
+    path: String,      // Deployment path (relative, no leading slash)
+    content: Vec<u8>,  // File content in bytes
+    hash: String,      // MD5 hash (computed on creation)
+    mime_type: String, // MIME type for Content-Type header
 }
 
 impl VirtualFile {
@@ -273,8 +273,8 @@ fn build_virtual_site(release: bool) -> Result<VirtualSite> {
 fn load_index_html(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
     let src_html = www_dir.join("index.html");
     if src_html.exists() {
-        let content = fs::read(&src_html)
-            .context(format!("Failed to read {}", src_html.display()))?;
+        let content =
+            fs::read(&src_html).context(format!("Failed to read {}", src_html.display()))?;
         site.add_file("index.html".to_string(), content, "text/html".to_string());
         println!("  ✓ Loaded index.html");
     }
@@ -284,8 +284,8 @@ fn load_index_html(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
 fn load_and_rewrite_index_js(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
     let src = www_dir.join("index.js");
     if src.exists() {
-        let content = fs::read_to_string(&src)
-            .context(format!("Failed to read {}", src.display()))?;
+        let content =
+            fs::read_to_string(&src).context(format!("Failed to read {}", src.display()))?;
 
         // Rewrite import paths: '../pkg/' -> './pkg/'
         let rewritten = content.replace("'../pkg/", "'./pkg/");
@@ -303,8 +303,8 @@ fn load_and_rewrite_index_js(www_dir: &Path, site: &mut VirtualSite) -> Result<(
 fn load_headers_file(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
     let src_headers = www_dir.join("_headers");
     if src_headers.exists() {
-        let content = fs::read(&src_headers)
-            .context(format!("Failed to read {}", src_headers.display()))?;
+        let content =
+            fs::read(&src_headers).context(format!("Failed to read {}", src_headers.display()))?;
         site.add_file("_headers".to_string(), content, "text/plain".to_string());
         println!("  ✓ Loaded _headers");
     }
@@ -332,8 +332,8 @@ fn load_directory_recursive(
     prefix: &str,
     site: &mut VirtualSite,
 ) -> Result<()> {
-    for entry in fs::read_dir(dir)
-        .context(format!("Failed to read directory: {}", dir.display()))?
+    for entry in
+        fs::read_dir(dir).context(format!("Failed to read directory: {}", dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();
@@ -348,8 +348,7 @@ fn load_directory_recursive(
                 .replace('\\', "/");
 
             let deployment_path = format!("{}/{}", prefix, relative);
-            let content = fs::read(&path)
-                .context(format!("Failed to read {}", path.display()))?;
+            let content = fs::read(&path).context(format!("Failed to read {}", path.display()))?;
             let mime_type = get_mime_type(&path).to_string();
 
             site.add_file(deployment_path, content, mime_type);
@@ -387,8 +386,8 @@ fn load_site_from_directory(dir: &Path) -> Result<VirtualSite> {
     let mut site = VirtualSite::new();
 
     fn visit_dir(dir: &Path, base: &Path, site: &mut VirtualSite) -> Result<()> {
-        for entry in fs::read_dir(dir)
-            .context(format!("Failed to read directory: {}", dir.display()))?
+        for entry in
+            fs::read_dir(dir).context(format!("Failed to read directory: {}", dir.display()))?
         {
             let entry = entry?;
             let path = entry.path();
@@ -402,8 +401,8 @@ fn load_site_from_directory(dir: &Path) -> Result<VirtualSite> {
                     .to_string_lossy()
                     .replace('\\', "/");
 
-                let content = fs::read(&path)
-                    .context(format!("Failed to read {}", path.display()))?;
+                let content =
+                    fs::read(&path).context(format!("Failed to read {}", path.display()))?;
                 let mime_type = get_mime_type(&path).to_string();
 
                 site.add_file(relative, content, mime_type);
@@ -421,7 +420,6 @@ fn build_file_map(site: &VirtualSite) -> HashMap<String, (Vec<u8>, String)> {
         .map(|vf| (vf.path.clone(), (vf.content.clone(), vf.hash.clone())))
         .collect()
 }
-
 
 fn serve_wasm(port: u16, release: bool, open: bool) -> Result<()> {
     // Validate port
@@ -889,6 +887,7 @@ struct DeploymentDetailResponse {
 
 #[derive(serde::Deserialize, Debug)]
 struct DeploymentDetail {
+    #[allow(dead_code)]
     id: String,
     short_id: String,
     environment: String,
@@ -918,6 +917,7 @@ struct TriggerMetadata {
 
 #[derive(serde::Deserialize, Debug, Default)]
 struct LatestStage {
+    #[allow(dead_code)]
     name: String,
     status: String,
 }
@@ -1063,7 +1063,6 @@ fn get_git_commit_message() -> Option<String> {
     }
 }
 
-
 fn deploy_wasm(
     branch: Option<String>,
     project_name: &str,
@@ -1100,7 +1099,10 @@ fn deploy_wasm(
                 output_dir.display()
             );
         }
-        println!("✓ Loading pre-packaged files from: {}", output_dir.display());
+        println!(
+            "✓ Loading pre-packaged files from: {}",
+            output_dir.display()
+        );
         load_site_from_directory(&output_dir)?
     };
 
@@ -1580,9 +1582,9 @@ fn promote_deployment(
                     d.aliases
                         .as_ref()
                         .map(|aliases| {
-                            aliases.iter().any(|alias| {
-                                alias.starts_with(&format!("{}.", current_branch))
-                            })
+                            aliases
+                                .iter()
+                                .any(|alias| alias.starts_with(&format!("{}.", current_branch)))
                         })
                         .unwrap_or(false)
                 });
@@ -1650,7 +1652,10 @@ fn promote_deployment(
         println!("  ID:          {}", dep.short_id);
         println!("  Environment: {}", dep.environment);
         println!("  Branch:      {}", dep.deployment_trigger.metadata.branch);
-        println!("  Commit:      {}", dep.deployment_trigger.metadata.commit_hash);
+        println!(
+            "  Commit:      {}",
+            dep.deployment_trigger.metadata.commit_hash
+        );
         println!("  Status:      {}", dep.latest_stage.status);
         println!("  URL:         {}", dep.url);
 
@@ -1666,7 +1671,10 @@ fn promote_deployment(
         println!("Promoting to Production");
         println!("{}", "=".repeat(60));
         println!("  Target branch: {}", production_branch);
-        println!("  Commit:        {}", dep.deployment_trigger.metadata.commit_hash);
+        println!(
+            "  Commit:        {}",
+            dep.deployment_trigger.metadata.commit_hash
+        );
         println!("{}", "=".repeat(60));
         println!();
 
@@ -1679,8 +1687,8 @@ fn promote_deployment(
         Some(production_branch.to_string()),
         project_name,
         "target/wasm-site",
-        false,  // don't skip package
-        true,   // always use release mode for production
+        false, // don't skip package
+        true,  // always use release mode for production
     )?;
 
     println!("\n{}", "=".repeat(60));
@@ -1693,11 +1701,7 @@ fn promote_deployment(
     Ok(())
 }
 
-fn rollback_deployment(
-    deployment_id: Option<String>,
-    project_name: &str,
-    yes: bool,
-) -> Result<()> {
+fn rollback_deployment(deployment_id: Option<String>, project_name: &str, yes: bool) -> Result<()> {
     println!("\n{}", "=".repeat(60));
     println!("Rollback Production Deployment");
     println!("{}", "=".repeat(60));
