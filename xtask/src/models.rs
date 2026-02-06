@@ -13,6 +13,7 @@ pub enum ModelType {
     BiRefNet,
     U2Net,
     ISNet,
+    Rmbg,
 }
 
 pub struct ModelInfo {
@@ -56,6 +57,26 @@ pub const MODELS: &[ModelInfo] = &[
         sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
         input_size: 1024,
         description: "ISNet - balanced quality and speed",
+    },
+    ModelInfo {
+        name: "birefnet-portrait",
+        model_type: ModelType::BiRefNet,
+        url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-portrait-epoch_150.onnx",
+        filename: "BiRefNet-portrait-epoch_150.onnx",
+        size_bytes: 972_666_916,
+        sha256: "1ba1c8ff5a7bbfadc8d8d13fb11d7be793f91f23d9d466549e37a854f6668f99",
+        input_size: 1024,
+        description: "BiRefNet Portrait - optimized for people/portraits",
+    },
+    ModelInfo {
+        name: "rmbg-1.4",
+        model_type: ModelType::Rmbg,
+        url: "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx",
+        filename: "rmbg-1.4.onnx",
+        size_bytes: 176_153_355,
+        sha256: "8cafcf770b06757c4eaced21b1a88e57fd2b66de01b8045f35f01535ba742e0f",
+        input_size: 1024,
+        description: "BRIA RMBG-1.4 - state-of-the-art background removal",
     },
 ];
 

@@ -21,7 +21,10 @@ export default {
     }
 
     // Get the object from R2
-    const objectKey = url.pathname.slice(1) || 'BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx';
+    const objectKey = url.pathname.slice(1);
+    if (!objectKey) {
+      return new Response('No model specified in URL path', { status: 400 });
+    }
 
     // Handle Range requests
     const range = request.headers.get('Range');

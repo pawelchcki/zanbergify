@@ -191,13 +191,13 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
         println!("  ✓ Copied _headers");
     }
 
-    // Models are loaded from external URL (GitHub releases), no need to copy
-    // let src_models = www_dir.join("models");
-    // let dst_models = output_dir.join("models");
-    // if src_models.exists() {
-    //     copy_dir_recursive(&src_models, &dst_models)?;
-    //     println!("  ✓ Copied models/");
-    // }
+    // Copy models directory if it exists (for local bundled models)
+    let src_models = www_dir.join("models");
+    let dst_models = output_dir.join("models");
+    if src_models.exists() {
+        copy_dir_recursive(&src_models, &dst_models)?;
+        println!("  ✓ Copied models/");
+    }
 
     // Copy pkg directory
     let dst_pkg = output_dir.join("pkg");

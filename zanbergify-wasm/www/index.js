@@ -1,9 +1,14 @@
 import init, { ZanbergifyProcessor, DetailedParams, ColorPalette } from '../pkg/zanbergify_wasm.js';
+// Import ONNX Runtime Web latest version with WebGPU support
+import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.webgpu.min.mjs';
+
+// Make ort globally available for compatibility
+window.ort = ort;
 
 let wasmInitialized = false;
 let currentImageBytes = null;
 
-// ONNX Runtime state (loaded globally via script tag)
+// ONNX Runtime state
 let onnxSession = null;
 let currentModelType = null;
 
@@ -132,7 +137,7 @@ async function initOnnxRuntime() {
 
         // Configure WASM file paths for WebGPU support
         // Point to CDN where WASM files are hosted
-        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/';
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/';
 
         // Enable WebGPU if available
         ort.env.wasm.numThreads = 4;
@@ -186,154 +191,97 @@ function getModelInputSize(modelType) {
             return 320;
         case 'birefnet':
         case 'isnet':
+        case 'rmbg':
             return 1024;
         default:
             return 320;
     }
 }
 
-// Load bundled BiRefNet model
+// Load bundled model with fallback
 async function loadBundledModel() {
     try {
         await initOnnxRuntime();
 
-        // Using U2Net for better ONNX Runtime Web compatibility
-        currentModelType = 'u2net';
-        const modelUrl = 'https://zanbergify-models-cdn.pawelchcki.workers.dev/u2net.onnx';
-        const cacheKey = `bundled_u2net`;
-
-        let modelData = null;
-
-        // Check cache first
-        const cached = await getCachedModel(cacheKey);
-
-        if (cached) {
-            showProgressDiv('Loading from cache...', 10);
-            modelData = cached;
-        } else {
-            // Load from bundled file
-            showProgressDiv('Loading model...', 10);
-            const response = await fetch(modelUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to load model: ${response.statusText}`);
-            }
-
-            const contentLength = response.headers.get('content-length');
-            const total = contentLength ? parseInt(contentLength, 10) : 0;
-            let loaded = 0;
-
-            const reader = response.body.getReader();
-            const chunks = [];
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                chunks.push(value);
-                loaded += value.length;
-
-                if (total > 0) {
-                    const progress = Math.round((loaded / total) * 80) + 10;
-                    showProgressDiv(`Loading model... ${Math.round(loaded / 1024 / 1024)}MB / ${Math.round(total / 1024 / 1024)}MB`, progress);
+        // Try RMBG-1.4 first (state-of-the-art, 1024x1024)
+        // Fall back to U2Net if it fails (faster, 320x320)
+        const modelConfigs = [
+            {
+                type: 'rmbg',
+                url: 'https://zanbergify-models-cdn.pawelchcki.workers.dev/rmbg-1.4.onnx',
+                cacheKey: 'bundled_rmbg_1.4',
+                description: 'RMBG-1.4 (1024x1024, state-of-the-art)',
+                // Conservative settings for large high-resolution model
+                sessionOptions: {
+                    webgpu: {
+                        executionProviders: [{
+                            name: 'webgpu',
+                            preferredLayout: 'NHWC',
+                            deviceType: 'gpu',
+                            powerPreference: 'high-performance'
+                        }],
+                        graphOptimizationLevel: 'disabled',    // Disable to save memory
+                        executionMode: 'sequential',
+                        enableMemPattern: false,               // Disable to avoid OOM
+                        enableCpuMemArena: false,
+                        logSeverityLevel: 0,
+                        logVerbosityLevel: 0
+                    },
+                    wasm: {
+                        executionProviders: ['wasm'],
+                        graphOptimizationLevel: 'all',
+                        enableCpuMemArena: true,
+                        enableMemPattern: true
+                    }
                 }
-            }
-
-            const allChunks = new Uint8Array(loaded);
-            let position = 0;
-            for (const chunk of chunks) {
-                allChunks.set(chunk, position);
-                position += chunk.length;
-            }
-
-            modelData = allChunks;
-
-            // Cache the model
-            await cacheModel(cacheKey, modelData);
-        }
-
-        // Create ONNX session
-        showProgressDiv('Initializing BiRefNet model...', 90);
-
-        console.log('Creating ONNX session...');
-
-        let usedBackend = 'wasm';  // Default to WASM
-        let sessionOptions;
-
-        // Try multiple WebGPU configurations
-        const webgpuConfigs = [
-            // Config 1: Simple string
-            {
-                executionProviders: ['webgpu'],
-                graphOptimizationLevel: 'basic'
             },
-            // Config 2: With device options
             {
-                executionProviders: [{
-                    name: 'webgpu',
-                    preferredLayout: 'NHWC'
-                }],
-                graphOptimizationLevel: 'basic'
+                type: 'u2net',
+                url: 'https://zanbergify-models-cdn.pawelchcki.workers.dev/u2net.onnx',
+                cacheKey: 'bundled_u2net',
+                description: 'U2Net (320x320, fast)',
+                // More aggressive optimization for smaller model
+                sessionOptions: {
+                    webgpu: {
+                        executionProviders: [{
+                            name: 'webgpu',
+                            preferredLayout: 'NHWC',
+                            deviceType: 'gpu',
+                            powerPreference: 'high-performance'
+                        }],
+                        graphOptimizationLevel: 'all',         // Enable optimizations
+                        executionMode: 'parallel',             // Parallel for speed
+                        enableMemPattern: true,                // Safe for smaller model
+                        enableCpuMemArena: false,
+                        logSeverityLevel: 0,
+                        logVerbosityLevel: 0
+                    },
+                    wasm: {
+                        executionProviders: ['wasm'],
+                        graphOptimizationLevel: 'all',
+                        enableCpuMemArena: true,
+                        enableMemPattern: true
+                    }
+                }
             }
         ];
 
-        let sessionCreated = false;
+        let lastError = null;
 
-        // Try WebGPU if available
-        if (navigator.gpu) {
-            for (let i = 0; i < webgpuConfigs.length && !sessionCreated; i++) {
-                try {
-                    console.log(`Attempting WebGPU config ${i + 1}...`);
-                    onnxSession = await ort.InferenceSession.create(modelData, webgpuConfigs[i]);
-                    usedBackend = 'webgpu';
-                    sessionCreated = true;
-                    console.log('✓ Session created with WebGPU backend');
-                    break;
-                } catch (err) {
-                    console.warn(`WebGPU config ${i + 1} failed:`, err.message);
-                }
-            }
-        } else {
-            console.log('WebGPU not available, using WASM');
-        }
-
-        // Fallback to WASM if WebGPU failed
-        if (!sessionCreated) {
-            console.log('Falling back to WASM backend...');
-            sessionOptions = {
-                executionProviders: ['wasm'],
-                graphOptimizationLevel: 'basic'
-            };
-
+        for (const config of modelConfigs) {
             try {
-                onnxSession = await ort.InferenceSession.create(modelData, sessionOptions);
-                usedBackend = 'wasm';
-                console.log('✓ Session created with WASM backend');
-            } catch (wasmError) {
-                console.error('WASM session creation also failed:', wasmError);
-                throw new Error(`Failed to create session: ${wasmError.message}`);
+                console.log(`Attempting to load ${config.description}...`);
+                await loadModelFromConfig(config);
+                return; // Success!
+            } catch (error) {
+                console.warn(`Failed to load ${config.description}:`, error.message);
+                lastError = error;
+                // Continue to next model
             }
         }
 
-        // Log which execution provider is actually being used
-        if (onnxSession) {
-            console.log('Session input names:', onnxSession.inputNames);
-            console.log('Session output names:', onnxSession.outputNames);
-        }
-
-        hideProgressDiv();
-
-        const backendEmoji = usedBackend === 'webgpu' ? '🚀' : '⚡';
-        const backendText = usedBackend === 'webgpu' ? 'WebGPU' : 'WASM';
-
-        modelStatusDiv.textContent = `✓ BiRefNet ready (1024x1024, ${backendText} ${backendEmoji})`;
-        modelStatusDiv.style.background = '#e8f5e9';
-        modelStatusDiv.style.color = '#2e7d32';
-        modelStatusDiv.style.cursor = 'default';
-
-        console.log(`Model loaded successfully using ${backendText} backend`);
-
-        // Trigger reprocessing if image is loaded
-        scheduleAutoProcess();
+        // If we get here, all models failed
+        throw lastError || new Error('All models failed to load');
     } catch (error) {
         hideProgressDiv();
         modelStatusDiv.textContent = `Failed to load model: ${error.message}`;
@@ -341,6 +289,178 @@ async function loadBundledModel() {
         modelStatusDiv.style.color = '#c62828';
         throw error;
     }
+}
+
+// Load a specific model configuration
+async function loadModelFromConfig(config) {
+    currentModelType = config.type;
+    const modelUrl = config.url;
+    const cacheKey = config.cacheKey;
+
+    let modelData = null;
+
+    // Check cache first
+    const cached = await getCachedModel(cacheKey);
+
+    if (cached) {
+        showProgressDiv(`Loading ${config.description} from cache...`, 10);
+        modelData = cached;
+    } else {
+        // Load from bundled file
+        showProgressDiv(`Loading ${config.description}...`, 10);
+        const response = await fetch(modelUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to load model: ${response.statusText}`);
+        }
+
+        const contentLength = response.headers.get('content-length');
+        const total = contentLength ? parseInt(contentLength, 10) : 0;
+        let loaded = 0;
+
+        const reader = response.body.getReader();
+        const chunks = [];
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            chunks.push(value);
+            loaded += value.length;
+
+            if (total > 0) {
+                const progress = Math.round((loaded / total) * 80) + 10;
+                showProgressDiv(`Loading ${config.description}... ${Math.round(loaded / 1024 / 1024)}MB / ${Math.round(total / 1024 / 1024)}MB`, progress);
+            }
+        }
+
+        const allChunks = new Uint8Array(loaded);
+        let position = 0;
+        for (const chunk of chunks) {
+            allChunks.set(chunk, position);
+            position += chunk.length;
+        }
+
+        modelData = allChunks;
+
+        // Cache the model
+        await cacheModel(cacheKey, modelData);
+    }
+
+    // Create ONNX session
+    showProgressDiv(`Initializing ${config.description}...`, 90);
+
+    console.log(`Creating ONNX session for ${config.description}...`);
+
+    let usedBackend = 'wasm';  // Default to WASM
+    let sessionOptions;
+    let sessionCreated = false;
+
+    // Detailed WebGPU detection
+    console.log('=== WebGPU Detection ===');
+    console.log('navigator.gpu:', navigator.gpu);
+
+    if (navigator.gpu) {
+        try {
+            const adapter = await navigator.gpu.requestAdapter({
+                powerPreference: 'high-performance'
+            });
+            console.log('GPU Adapter:', adapter);
+            console.log('Adapter limits:', adapter.limits);
+
+            if (adapter) {
+                // Request device with higher limits for large models
+                const device = await adapter.requestDevice({
+                    requiredLimits: {
+                        maxStorageBuffersPerShaderStage: Math.min(
+                            adapter.limits.maxStorageBuffersPerShaderStage,
+                            16
+                        ),
+                        maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+                        maxBufferSize: adapter.limits.maxBufferSize,
+                        maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize
+                    }
+                });
+                console.log('GPU Device:', device);
+                console.log('Device limits:', device.limits);
+                console.log('✓ GPU device with enhanced limits');
+            }
+        } catch (err) {
+            console.error('WebGPU adapter/device request failed:', err);
+        }
+    }
+
+    // Try WebGPU if available
+    if (navigator.gpu) {
+        try {
+            // Use model-specific WebGPU configuration
+            const webgpuConfig = config.sessionOptions.webgpu;
+
+            console.log('Attempting WebGPU config...', webgpuConfig);
+            onnxSession = await ort.InferenceSession.create(modelData, webgpuConfig);
+
+            // Verify session was created successfully
+            if (!onnxSession || !onnxSession.inputNames || onnxSession.inputNames.length === 0) {
+                throw new Error('Session created but invalid (no input names)');
+            }
+
+            usedBackend = 'webgpu';
+            sessionCreated = true;
+            console.log('✓ Session created with WebGPU backend');
+            console.log('  Input names:', onnxSession.inputNames);
+            console.log('  Output names:', onnxSession.outputNames);
+        } catch (err) {
+            console.warn('WebGPU config failed:', err?.message || err || 'Unknown error');
+            if (err?.stack) console.warn('  Stack:', err.stack);
+
+            // Clean up failed session attempt
+            if (onnxSession) {
+                try {
+                    await onnxSession.release?.();
+                } catch (e) {
+                    // Ignore cleanup errors
+                }
+                onnxSession = null;
+            }
+        }
+    }
+
+    // Fallback to WASM if WebGPU failed
+    if (!sessionCreated) {
+        console.log('Falling back to WASM backend...');
+        // Use model-specific WASM configuration
+        const wasmConfig = config.sessionOptions.wasm;
+
+        try {
+            onnxSession = await ort.InferenceSession.create(modelData, wasmConfig);
+            usedBackend = 'wasm';
+            console.log('✓ Session created with WASM backend');
+        } catch (wasmError) {
+            console.error('WASM session creation also failed:', wasmError);
+            throw new Error(`Failed to create session: ${wasmError.message}`);
+        }
+    }
+
+    // Log which execution provider is actually being used
+    if (onnxSession) {
+        console.log('Session input names:', onnxSession.inputNames);
+        console.log('Session output names:', onnxSession.outputNames);
+    }
+
+    hideProgressDiv();
+
+    const backendEmoji = usedBackend === 'webgpu' ? '🚀' : '⚡';
+    const backendText = usedBackend === 'webgpu' ? 'WebGPU' : 'WASM';
+    const inputSize = getModelInputSize(currentModelType);
+
+    modelStatusDiv.textContent = `✓ ${config.description} ready (${inputSize}x${inputSize}, ${backendText} ${backendEmoji})`;
+    modelStatusDiv.style.background = '#e8f5e9';
+    modelStatusDiv.style.color = '#2e7d32';
+    modelStatusDiv.style.cursor = 'default';
+
+    console.log(`Model ${config.description} loaded successfully using ${backendText} backend`);
+
+    // Trigger reprocessing if image is loaded
+    scheduleAutoProcess();
 }
 
 // Show progress indicator
@@ -384,6 +504,21 @@ async function preprocessImage(imageData, modelType) {
                 tensorData[0 * inputSize * inputSize + y * inputSize + x] = pixels[idx + 0] / 255.0;
                 tensorData[1 * inputSize * inputSize + y * inputSize + x] = pixels[idx + 1] / 255.0;
                 tensorData[2 * inputSize * inputSize + y * inputSize + x] = pixels[idx + 2] / 255.0;
+            }
+        }
+    } else if (modelType === 'rmbg') {
+        // RMBG normalization: mean=[0.5, 0.5, 0.5], std=[1.0, 1.0, 1.0]
+        const RMBG_MEAN = [0.5, 0.5, 0.5];
+        const RMBG_STD = [1.0, 1.0, 1.0];
+
+        for (let y = 0; y < inputSize; y++) {
+            for (let x = 0; x < inputSize; x++) {
+                const idx = (y * inputSize + x) * 4;
+                for (let c = 0; c < 3; c++) {
+                    const val = pixels[idx + c] / 255.0;
+                    tensorData[c * inputSize * inputSize + y * inputSize + x] =
+                        (val - RMBG_MEAN[c]) / RMBG_STD[c];
+                }
             }
         }
     } else {
@@ -445,7 +580,7 @@ function postprocessMask(outputTensor, modelType, origWidth, origHeight) {
             processedMask[i] = Math.round(normalized * 255);
         }
     } else {
-        // U2Net and ISNet: sigmoid only
+        // U2Net, ISNet, and RMBG: sigmoid only
         processedMask = new Uint8Array(maskHeight * maskWidth);
         for (let i = 0; i < outputData.length; i++) {
             const sigmoid = 1.0 / (1.0 + Math.exp(-outputData[i]));
@@ -491,6 +626,22 @@ function resizeMask(maskData, maskWidth, maskHeight, targetWidth, targetHeight) 
     return result;
 }
 
+// Calculate mask threshold ratio from slider value
+function getMaskThresholdRatio() {
+    // Slider configuration: range 30-80 maps to threshold ratio 0.30-0.80
+    const SLIDER_MIN = 30;
+    const SLIDER_RANGE = 50;
+    const RATIO_MIN = 0.30;
+    const RATIO_RANGE = 0.50;
+    const CURVE_EXPONENT = 1.5;  // Exponential curve for smoother control
+
+    const thresholdSlider = document.getElementById('maskThreshold');
+    const sliderValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
+    const normalized = (sliderValue - SLIDER_MIN) / SLIDER_RANGE;
+    const curved = Math.pow(normalized, CURVE_EXPONENT);
+    return RATIO_MIN + (curved * RATIO_RANGE);
+}
+
 // Apply mask to image (create RGBA with alpha channel)
 async function applyMaskToImage(imageBytes, mask, width, height) {
     // Decode original image
@@ -507,13 +658,8 @@ async function applyMaskToImage(imageBytes, mask, width, height) {
     const imageData = ctx.getImageData(0, 0, width, height);
     const pixels = imageData.data;
 
-    // Apply mask with configurable threshold (exponential curve)
-    const thresholdSlider = document.getElementById('maskThreshold');
-    const sliderValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
-    const normalized = (sliderValue - 30) / 50; // Normalize to 0-1
-    const curved = Math.pow(normalized, 1.5); // Apply exponential curve
-    const thresholdRatio = 0.30 + (curved * 0.50); // Map to 0.30-0.80
-    const threshold = thresholdRatio * 255; // Convert to 0-255 range
+    // Apply mask with configurable threshold
+    const threshold = getMaskThresholdRatio() * 255; // Convert to 0-255 range
 
     for (let i = 0; i < mask.length; i++) {
         const alpha = mask[i] > threshold ? 255 : 0;
@@ -819,11 +965,7 @@ const maskThresholdSlider = document.getElementById('maskThreshold');
 const maskThresholdValue = document.getElementById('maskThresholdValue');
 if (maskThresholdSlider && maskThresholdValue) {
     maskThresholdSlider.addEventListener('input', (e) => {
-        const sliderValue = parseInt(e.target.value);
-        // Map 30-80 range with slight exponential curve for smoother control
-        const normalized = (sliderValue - 30) / 50; // 0-1 range
-        const curved = Math.pow(normalized, 1.5); // Exponential curve
-        const threshold = 0.30 + (curved * 0.50); // Map to 0.30-0.80 range
+        const threshold = getMaskThresholdRatio();
         maskThresholdValue.textContent = threshold.toFixed(2);
         scheduleAutoProcess();
     });
