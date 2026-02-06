@@ -75,6 +75,31 @@ pub enum WasmSubCmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Promote a preview deployment to production
+    Promote {
+        /// Deployment ID to promote (or use --latest)
+        deployment_id: Option<String>,
+        /// Promote the latest deployment from current branch
+        #[arg(long)]
+        latest: bool,
+        /// Cloudflare Pages project name
+        #[arg(long, default_value = "zanbergify-wasm")]
+        project_name: String,
+        /// Production branch name
+        #[arg(long, default_value = "main")]
+        production_branch: String,
+    },
+    /// Rollback production to a previous deployment
+    Rollback {
+        /// Deployment ID to rollback to (shows list if not provided)
+        deployment_id: Option<String>,
+        /// Cloudflare Pages project name
+        #[arg(long, default_value = "zanbergify-wasm")]
+        project_name: String,
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        yes: bool,
+    },
 }
 
 impl WasmCmd {
@@ -99,6 +124,17 @@ impl WasmCmd {
                 keep,
                 yes,
             } => cleanup_deployments(&project_name, keep, yes),
+            WasmSubCmd::Promote {
+                deployment_id,
+                latest,
+                project_name,
+                production_branch,
+            } => promote_deployment(deployment_id, latest, &project_name, &production_branch),
+            WasmSubCmd::Rollback {
+                deployment_id,
+                project_name,
+                yes,
+            } => rollback_deployment(deployment_id, &project_name, yes),
         }
     }
 }
@@ -696,6 +732,57 @@ struct AccountsResponse {
 struct Account {
     id: String,
     name: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct DeploymentDetailResponse {
+    result: DeploymentDetail,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct DeploymentDetail {
+    id: String,
+    short_id: String,
+    environment: String,
+    url: String,
+    created_on: String,
+    #[serde(default)]
+    deployment_trigger: DeploymentTrigger,
+    #[serde(default)]
+    latest_stage: LatestStage,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+struct DeploymentTrigger {
+    #[serde(rename = "metadata")]
+    metadata: TriggerMetadata,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+struct TriggerMetadata {
+    #[serde(default)]
+    branch: String,
+    #[serde(default)]
+    commit_hash: String,
+    #[serde(default)]
+    commit_message: String,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+struct LatestStage {
+    name: String,
+    status: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct RollbackResponse {
+    result: RollbackResult,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct RollbackResult {
+    id: String,
+    url: String,
 }
 
 fn check_cloudflare_credentials() -> Result<String> {
@@ -1326,4 +1413,348 @@ async fn deploy_to_cloudflare(
     println!("✓ Deployment created: {}", deployment.result.id);
 
     Ok(())
+}
+
+fn promote_deployment(
+    deployment_id: Option<String>,
+    latest: bool,
+    project_name: &str,
+    production_branch: &str,
+) -> Result<()> {
+    println!("\n{}", "=".repeat(60));
+    println!("Promote Deployment to Production");
+    println!("{}", "=".repeat(60));
+
+    // Get credentials
+    let api_token = check_cloudflare_credentials()?;
+
+    let runtime = tokio::runtime::Runtime::new()?;
+
+    runtime.block_on(async {
+        let account_id = get_account_id(&api_token).await?;
+        let client = reqwest::Client::new();
+
+        // Determine which deployment to promote
+        let deployment_id = if latest {
+            println!("Finding latest preview deployment from current branch...");
+            let current_branch = determine_branch(None)?;
+
+            // Fetch deployments
+            let url = format!(
+                "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments",
+                account_id, project_name
+            );
+
+            let response = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", api_token))
+                .send()
+                .await
+                .context("Failed to fetch deployments")?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                bail!("Failed to fetch deployments (status: {}): {}", status, body);
+            }
+
+            let deployments: DeploymentsListResponse = response
+                .json()
+                .await
+                .context("Failed to parse deployments")?;
+
+            // Find latest preview deployment from current branch
+            let latest_deployment = deployments
+                .result
+                .iter()
+                .filter(|d| d.environment == "preview")
+                .find(|d| {
+                    d.aliases
+                        .as_ref()
+                        .map(|aliases| {
+                            aliases.iter().any(|alias| {
+                                alias.starts_with(&format!("{}.", current_branch))
+                            })
+                        })
+                        .unwrap_or(false)
+                });
+
+            match latest_deployment {
+                Some(dep) => {
+                    println!("✓ Found: {} ({})", dep.short_id, dep.created_on);
+                    dep.id.clone()
+                }
+                None => {
+                    bail!(
+                        "No preview deployments found for branch '{}'\n\
+                         Deploy to preview first: cargo xtask wasm deploy",
+                        current_branch
+                    );
+                }
+            }
+        } else if let Some(id) = deployment_id {
+            id
+        } else {
+            bail!("Either provide a deployment ID or use --latest flag");
+        };
+
+        // Fetch deployment details
+        println!("\nFetching deployment details...");
+        let detail_url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}",
+            account_id, project_name, deployment_id
+        );
+
+        let response = client
+            .get(&detail_url)
+            .header("Authorization", format!("Bearer {}", api_token))
+            .send()
+            .await
+            .context("Failed to fetch deployment details")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Failed to fetch deployment details (status: {}): {}\n\
+                 Check that the deployment ID is correct",
+                status,
+                body
+            );
+        }
+
+        let deployment: DeploymentDetailResponse = response
+            .json()
+            .await
+            .context("Failed to parse deployment details")?;
+
+        let dep = deployment.result;
+
+        if dep.environment == "production" {
+            bail!(
+                "Deployment {} is already in production\n\
+                 Use 'cargo xtask wasm rollback' to rollback production instead",
+                dep.short_id
+            );
+        }
+
+        println!("✓ Deployment Details:");
+        println!("  ID:          {}", dep.short_id);
+        println!("  Environment: {}", dep.environment);
+        println!("  Branch:      {}", dep.deployment_trigger.metadata.branch);
+        println!("  Commit:      {}", dep.deployment_trigger.metadata.commit_hash);
+        println!("  Status:      {}", dep.latest_stage.status);
+        println!("  URL:         {}", dep.url);
+
+        if dep.latest_stage.status != "success" {
+            bail!(
+                "Cannot promote deployment with status '{}'\n\
+                 Only successful deployments can be promoted",
+                dep.latest_stage.status
+            );
+        }
+
+        println!("\n{}", "=".repeat(60));
+        println!("Promoting to Production");
+        println!("{}", "=".repeat(60));
+        println!("  Target branch: {}", production_branch);
+        println!("  Commit:        {}", dep.deployment_trigger.metadata.commit_hash);
+        println!("{}", "=".repeat(60));
+        println!();
+
+        Ok(())
+    })?;
+
+    // Use the existing deploy command to deploy to production
+    println!("Deploying to production branch...");
+    deploy_wasm(
+        Some(production_branch.to_string()),
+        project_name,
+        "target/wasm-site",
+        false,  // don't skip package
+        true,   // always use release mode for production
+    )?;
+
+    println!("\n{}", "=".repeat(60));
+    println!("✓ Promotion Complete");
+    println!("{}", "=".repeat(60));
+    println!("  Production URL: https://{}.pages.dev", project_name);
+    println!("{}", "=".repeat(60));
+    println!();
+
+    Ok(())
+}
+
+fn rollback_deployment(
+    deployment_id: Option<String>,
+    project_name: &str,
+    yes: bool,
+) -> Result<()> {
+    println!("\n{}", "=".repeat(60));
+    println!("Rollback Production Deployment");
+    println!("{}", "=".repeat(60));
+
+    let api_token = check_cloudflare_credentials()?;
+    let runtime = tokio::runtime::Runtime::new()?;
+
+    runtime.block_on(async {
+        let account_id = get_account_id(&api_token).await?;
+        let client = reqwest::Client::new();
+
+        // If no deployment ID provided, show recent production deployments
+        let deployment_id = if let Some(id) = deployment_id {
+            id
+        } else {
+            println!("\nFetching recent production deployments...");
+            let url = format!(
+                "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments",
+                account_id, project_name
+            );
+
+            let response = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", api_token))
+                .send()
+                .await
+                .context("Failed to fetch deployments")?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                bail!("Failed to fetch deployments (status: {}): {}", status, body);
+            }
+
+            let deployments: DeploymentsListResponse = response
+                .json()
+                .await
+                .context("Failed to parse deployments")?;
+
+            // Filter and sort production deployments
+            let mut production: Vec<_> = deployments
+                .result
+                .into_iter()
+                .filter(|d| d.environment == "production")
+                .collect();
+            production.sort_by(|a, b| b.created_on.cmp(&a.created_on));
+
+            if production.is_empty() {
+                bail!("No production deployments found");
+            }
+
+            println!("\nRecent production deployments:");
+            println!("{}", "-".repeat(80));
+            for (i, dep) in production.iter().take(10).enumerate() {
+                let marker = if i == 0 { "→ CURRENT" } else { "" };
+                let alias = dep
+                    .aliases
+                    .as_ref()
+                    .and_then(|a| a.first())
+                    .map(|s| s.as_str())
+                    .unwrap_or("no alias");
+                println!(
+                    "  {}. {} | {} | {} {}",
+                    i + 1,
+                    dep.short_id,
+                    dep.created_on,
+                    alias,
+                    marker
+                );
+            }
+            println!("{}", "-".repeat(80));
+            println!("\nTo rollback, run: cargo xtask wasm rollback <deployment_id>");
+            return Ok(());
+        };
+
+        // Fetch deployment details to confirm
+        println!("\nFetching deployment details...");
+        let detail_url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}",
+            account_id, project_name, deployment_id
+        );
+
+        let response = client
+            .get(&detail_url)
+            .header("Authorization", format!("Bearer {}", api_token))
+            .send()
+            .await
+            .context("Failed to fetch deployment details")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Failed to fetch deployment details (status: {}): {}",
+                status,
+                body
+            );
+        }
+
+        let deployment: DeploymentDetailResponse = response
+            .json()
+            .await
+            .context("Failed to parse deployment details")?;
+
+        let dep = deployment.result;
+
+        if dep.environment != "production" {
+            bail!(
+                "Deployment {} is not a production deployment\n\
+                 Rollback only works with production deployments",
+                dep.short_id
+            );
+        }
+
+        println!("✓ Rollback Target:");
+        println!("  ID:      {}", dep.short_id);
+        println!("  Created: {}", dep.created_on);
+        println!("  Commit:  {}", dep.deployment_trigger.metadata.commit_hash);
+        println!("  Message: {}", dep.deployment_trigger.metadata.commit_message);
+        println!();
+
+        if !yes {
+            println!("⚠️  This will rollback production to deployment {}", dep.short_id);
+            println!("   Run with --yes to confirm");
+            return Ok(());
+        }
+
+        // Execute rollback
+        println!("Rolling back production...");
+        let rollback_url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}/rollback",
+            account_id, project_name, deployment_id
+        );
+
+        let response = client
+            .post(&rollback_url)
+            .header("Authorization", format!("Bearer {}", api_token))
+            .send()
+            .await
+            .context("Failed to rollback deployment")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Failed to rollback deployment (status: {}): {}\n\
+                 Note: You can only rollback to previous production deployments",
+                status,
+                body
+            );
+        }
+
+        let rollback: RollbackResponse = response
+            .json()
+            .await
+            .context("Failed to parse rollback response")?;
+
+        println!("\n{}", "=".repeat(60));
+        println!("✓ Rollback Complete");
+        println!("{}", "=".repeat(60));
+        println!("  Deployment ID: {}", rollback.result.id);
+        println!("  URL:           {}", rollback.result.url);
+        println!("{}", "=".repeat(60));
+        println!();
+
+        Ok(())
+    })
 }
