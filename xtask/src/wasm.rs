@@ -3,11 +3,63 @@ use base64::Engine;
 use clap::{Args, Subcommand};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::util::project_root;
+
+// ========================================
+// Virtual File System for In-Memory Deployment
+// ========================================
+
+/// Represents a file in memory with its deployment path and content
+#[derive(Clone)]
+struct VirtualFile {
+    path: String,      // Deployment path (relative, no leading slash)
+    content: Vec<u8>,  // File content in bytes
+    hash: String,      // MD5 hash (computed on creation)
+    mime_type: String, // MIME type for Content-Type header
+}
+
+impl VirtualFile {
+    fn new(path: String, content: Vec<u8>, mime_type: String) -> Self {
+        let hash = format!("{:x}", md5::compute(&content));
+        Self {
+            path,
+            content,
+            hash,
+            mime_type,
+        }
+    }
+}
+
+/// Collection of virtual files ready for deployment
+struct VirtualSite {
+    files: Vec<VirtualFile>,
+}
+
+impl VirtualSite {
+    fn new() -> Self {
+        Self { files: Vec::new() }
+    }
+
+    fn add_file(&mut self, path: String, content: Vec<u8>, mime_type: String) {
+        self.files.push(VirtualFile::new(path, content, mime_type));
+    }
+
+    fn get_file(&self, path: &str) -> Option<&VirtualFile> {
+        self.files.iter().find(|f| f.path == path)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &VirtualFile> {
+        self.files.iter()
+    }
+
+    fn len(&self) -> usize {
+        self.files.len()
+    }
+}
 
 #[derive(Args)]
 pub struct WasmCmd {
@@ -75,6 +127,31 @@ pub enum WasmSubCmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Promote a preview deployment to production
+    Promote {
+        /// Deployment ID to promote (or use --latest)
+        deployment_id: Option<String>,
+        /// Promote the latest deployment from current branch
+        #[arg(long)]
+        latest: bool,
+        /// Cloudflare Pages project name
+        #[arg(long, default_value = "zanbergify-wasm")]
+        project_name: String,
+        /// Production branch name
+        #[arg(long, default_value = "main")]
+        production_branch: String,
+    },
+    /// Rollback production to a previous deployment
+    Rollback {
+        /// Deployment ID to rollback to (shows list if not provided)
+        deployment_id: Option<String>,
+        /// Cloudflare Pages project name
+        #[arg(long, default_value = "zanbergify-wasm")]
+        project_name: String,
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        yes: bool,
+    },
 }
 
 impl WasmCmd {
@@ -99,6 +176,17 @@ impl WasmCmd {
                 keep,
                 yes,
             } => cleanup_deployments(&project_name, keep, yes),
+            WasmSubCmd::Promote {
+                deployment_id,
+                latest,
+                project_name,
+                production_branch,
+            } => promote_deployment(deployment_id, latest, &project_name, &production_branch),
+            WasmSubCmd::Rollback {
+                deployment_id,
+                project_name,
+                yes,
+            } => rollback_deployment(deployment_id, &project_name, yes),
         }
     }
 }
@@ -144,7 +232,11 @@ fn build_wasm(release: bool) -> Result<()> {
     Ok(())
 }
 
-fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
+// ========================================
+// Virtual Site Builder
+// ========================================
+
+fn build_virtual_site(release: bool) -> Result<VirtualSite> {
     let project_root = project_root();
     let wasm_dir = project_root.join("zanbergify-wasm");
     let pkg_dir = wasm_dir.join("pkg");
@@ -156,7 +248,117 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
         build_wasm(release)?;
     }
 
-    // Clean and create output directory
+    let mut site = VirtualSite::new();
+    println!("Building virtual site...");
+
+    // Load all files into memory
+    load_index_html(&www_dir, &mut site)?;
+    load_and_rewrite_index_js(&www_dir, &mut site)?;
+    load_headers_file(&www_dir, &mut site)?;
+    load_models_directory(&www_dir, &mut site)?;
+    load_pkg_directory(&pkg_dir, &mut site)?;
+
+    // Validate critical files
+    let required = ["index.html", "index.js", "pkg/zanbergify_wasm_bg.wasm"];
+    for file in required {
+        if site.get_file(file).is_none() {
+            bail!("Required file missing: {}", file);
+        }
+    }
+
+    println!("✓ Virtual site ready with {} files", site.len());
+    Ok(site)
+}
+
+fn load_index_html(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
+    let src_html = www_dir.join("index.html");
+    if src_html.exists() {
+        let content =
+            fs::read(&src_html).context(format!("Failed to read {}", src_html.display()))?;
+        site.add_file("index.html".to_string(), content, "text/html".to_string());
+        println!("  ✓ Loaded index.html");
+    }
+    Ok(())
+}
+
+fn load_and_rewrite_index_js(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
+    let src = www_dir.join("index.js");
+    if src.exists() {
+        let content =
+            fs::read_to_string(&src).context(format!("Failed to read {}", src.display()))?;
+
+        // Rewrite import paths: '../pkg/' -> './pkg/'
+        let rewritten = content.replace("'../pkg/", "'./pkg/");
+
+        site.add_file(
+            "index.js".to_string(),
+            rewritten.into_bytes(),
+            "application/javascript".to_string(),
+        );
+        println!("  ✓ Loaded and rewritten index.js");
+    }
+    Ok(())
+}
+
+fn load_headers_file(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
+    let src_headers = www_dir.join("_headers");
+    if src_headers.exists() {
+        let content =
+            fs::read(&src_headers).context(format!("Failed to read {}", src_headers.display()))?;
+        site.add_file("_headers".to_string(), content, "text/plain".to_string());
+        println!("  ✓ Loaded _headers");
+    }
+    Ok(())
+}
+
+fn load_models_directory(www_dir: &Path, site: &mut VirtualSite) -> Result<()> {
+    let src_models = www_dir.join("models");
+    if src_models.exists() {
+        load_directory_recursive(&src_models, &src_models, "models", site)?;
+        println!("  ✓ Loaded models/");
+    }
+    Ok(())
+}
+
+fn load_pkg_directory(pkg_dir: &Path, site: &mut VirtualSite) -> Result<()> {
+    load_directory_recursive(pkg_dir, pkg_dir, "pkg", site)?;
+    println!("  ✓ Loaded pkg/");
+    Ok(())
+}
+
+fn load_directory_recursive(
+    dir: &Path,
+    base: &Path,
+    prefix: &str,
+    site: &mut VirtualSite,
+) -> Result<()> {
+    for entry in
+        fs::read_dir(dir).context(format!("Failed to read directory: {}", dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            load_directory_recursive(&path, base, prefix, site)?;
+        } else if path.is_file() {
+            let relative = path
+                .strip_prefix(base)
+                .context("Failed to get relative path")?
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            let deployment_path = format!("{}/{}", prefix, relative);
+            let content = fs::read(&path).context(format!("Failed to read {}", path.display()))?;
+            let mime_type = get_mime_type(&path).to_string();
+
+            site.add_file(deployment_path, content, mime_type);
+        }
+    }
+    Ok(())
+}
+
+fn write_virtual_site_to_disk(site: &VirtualSite, output_dir: &Path) -> Result<()> {
+    // Clean and recreate directory
     if output_dir.exists() {
         fs::remove_dir_all(output_dir).context(format!(
             "Failed to clean directory: {}",
@@ -168,82 +370,55 @@ fn prepare_site_dir(output_dir: &Path, release: bool) -> Result<()> {
         output_dir.display()
     ))?;
 
-    println!("Preparing site directory: {}", output_dir.display());
-
-    // Copy index.html
-    let src_html = www_dir.join("index.html");
-    let dst_html = output_dir.join("index.html");
-    if src_html.exists() {
-        fs::copy(&src_html, &dst_html).context(format!("Failed to copy {}", src_html.display()))?;
-        println!("  ✓ Copied index.html");
-    }
-
-    // Copy and rewrite index.js
-    rewrite_index_js(&www_dir, output_dir)?;
-    println!("  ✓ Copied and rewritten index.js");
-
-    // Copy _headers
-    let src_headers = www_dir.join("_headers");
-    let dst_headers = output_dir.join("_headers");
-    if src_headers.exists() {
-        fs::copy(&src_headers, &dst_headers)
-            .context(format!("Failed to copy {}", src_headers.display()))?;
-        println!("  ✓ Copied _headers");
-    }
-
-    // Copy models directory if it exists (for local bundled models)
-    let src_models = www_dir.join("models");
-    let dst_models = output_dir.join("models");
-    if src_models.exists() {
-        copy_dir_recursive(&src_models, &dst_models)?;
-        println!("  ✓ Copied models/");
-    }
-
-    // Copy pkg directory
-    let dst_pkg = output_dir.join("pkg");
-    copy_dir_recursive(&pkg_dir, &dst_pkg)?;
-    println!("  ✓ Copied pkg/");
-
-    // Create deployment marker with timestamp in filename to force upload
-    // This ensures Cloudflare API provides upload URLs even when all other files are cached
-    println!("✓ Site directory ready");
-
-    Ok(())
-}
-
-fn rewrite_index_js(www_dir: &Path, output_dir: &Path) -> Result<()> {
-    let src = www_dir.join("index.js");
-    let dst = output_dir.join("index.js");
-
-    let content = fs::read_to_string(&src).context(format!("Failed to read {}", src.display()))?;
-
-    // Rewrite import paths: '../pkg/' -> './pkg/'
-    let rewritten = content.replace("'../pkg/", "'./pkg/");
-
-    fs::write(&dst, rewritten).context(format!("Failed to write {}", dst.display()))?;
-
-    Ok(())
-}
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst).context(format!("Failed to create directory: {}", dst.display()))?;
-
-    for entry in
-        fs::read_dir(src).context(format!("Failed to read directory: {}", src.display()))?
-    {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)
-                .context(format!("Failed to copy {}", src_path.display()))?;
+    // Write each virtual file
+    for file in site.iter() {
+        let full_path = output_dir.join(&file.path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent)?;
         }
+        fs::write(&full_path, &file.content)
+            .context(format!("Failed to write {}", full_path.display()))?;
+    }
+    Ok(())
+}
+
+fn load_site_from_directory(dir: &Path) -> Result<VirtualSite> {
+    let mut site = VirtualSite::new();
+
+    fn visit_dir(dir: &Path, base: &Path, site: &mut VirtualSite) -> Result<()> {
+        for entry in
+            fs::read_dir(dir).context(format!("Failed to read directory: {}", dir.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                visit_dir(&path, base, site)?;
+            } else if path.is_file() {
+                let relative = path
+                    .strip_prefix(base)
+                    .context("Failed to get relative path")?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+
+                let content =
+                    fs::read(&path).context(format!("Failed to read {}", path.display()))?;
+                let mime_type = get_mime_type(&path).to_string();
+
+                site.add_file(relative, content, mime_type);
+            }
+        }
+        Ok(())
     }
 
-    Ok(())
+    visit_dir(dir, dir, &mut site)?;
+    Ok(site)
+}
+
+fn build_file_map(site: &VirtualSite) -> HashMap<String, (Vec<u8>, String)> {
+    site.iter()
+        .map(|vf| (vf.path.clone(), (vf.content.clone(), vf.hash.clone())))
+        .collect()
 }
 
 fn serve_wasm(port: u16, release: bool, open: bool) -> Result<()> {
@@ -255,8 +430,11 @@ fn serve_wasm(port: u16, release: bool, open: bool) -> Result<()> {
     let project_root = project_root();
     let output_dir = project_root.join("target").join("wasm-site");
 
-    // Prepare site
-    prepare_site_dir(&output_dir, release)?;
+    // Build virtual site
+    let site = build_virtual_site(release)?;
+
+    // Write to disk for serving
+    write_virtual_site_to_disk(&site, &output_dir)?;
 
     // Start server
     let addr = format!("127.0.0.1:{}", port);
@@ -596,7 +774,11 @@ fn package_wasm(output: &str, release: bool) -> Result<()> {
     let project_root = project_root();
     let output_dir = project_root.join(output);
 
-    prepare_site_dir(&output_dir, release)?;
+    // Build virtual site
+    let site = build_virtual_site(release)?;
+
+    // Write to disk (users expect physical files from package)
+    write_virtual_site_to_disk(&site, &output_dir)?;
 
     println!("\n{}", "=".repeat(60));
     println!("Package Ready");
@@ -696,6 +878,59 @@ struct AccountsResponse {
 struct Account {
     id: String,
     name: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct DeploymentDetailResponse {
+    result: DeploymentDetail,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct DeploymentDetail {
+    #[allow(dead_code)]
+    id: String,
+    short_id: String,
+    environment: String,
+    url: String,
+    created_on: String,
+    #[serde(default)]
+    deployment_trigger: DeploymentTrigger,
+    #[serde(default)]
+    latest_stage: LatestStage,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+struct DeploymentTrigger {
+    #[serde(rename = "metadata")]
+    metadata: TriggerMetadata,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+struct TriggerMetadata {
+    #[serde(default)]
+    branch: String,
+    #[serde(default)]
+    commit_hash: String,
+    #[serde(default)]
+    commit_message: String,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+struct LatestStage {
+    #[allow(dead_code)]
+    name: String,
+    status: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct RollbackResponse {
+    result: RollbackResult,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct RollbackResult {
+    id: String,
+    url: String,
 }
 
 fn check_cloudflare_credentials() -> Result<String> {
@@ -828,48 +1063,6 @@ fn get_git_commit_message() -> Option<String> {
     }
 }
 
-fn hash_file(path: &Path) -> Result<String> {
-    let content = fs::read(path).context(format!("Failed to read file: {}", path.display()))?;
-    let hash = md5::compute(&content);
-    Ok(format!("{:x}", hash))
-}
-
-fn collect_files(dir: &Path) -> Result<HashMap<String, (PathBuf, String)>> {
-    let mut files = HashMap::new();
-
-    fn visit_dir(
-        dir: &Path,
-        base: &Path,
-        files: &mut HashMap<String, (PathBuf, String)>,
-    ) -> Result<()> {
-        for entry in
-            fs::read_dir(dir).context(format!("Failed to read directory: {}", dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_dir() {
-                visit_dir(&path, base, files)?;
-            } else if path.is_file() {
-                let relative = path
-                    .strip_prefix(base)
-                    .context("Failed to get relative path")?
-                    .to_string_lossy()
-                    .replace('\\', "/");
-
-                // Don't prepend / - Cloudflare expects paths without leading slash
-                let hash = hash_file(&path)?;
-
-                files.insert(relative.to_string(), (path.clone(), hash));
-            }
-        }
-        Ok(())
-    }
-
-    visit_dir(dir, dir, &mut files)?;
-    Ok(files)
-}
-
 fn deploy_wasm(
     branch: Option<String>,
     project_name: &str,
@@ -891,12 +1084,14 @@ fn deploy_wasm(
     let project_root = project_root();
     let output_dir = project_root.join(output);
 
-    // Package if needed
-    if !skip_package {
-        println!("\nPackaging WASM site...");
-        prepare_site_dir(&output_dir, release)?;
-        println!("✓ Packaging complete");
+    // Build virtual site in memory
+    let site = if !skip_package {
+        println!("\nBuilding WASM site...");
+        let site = build_virtual_site(release)?;
+        println!("✓ Build complete");
+        site
     } else {
+        // Load from disk for --skip-package
         if !output_dir.exists() {
             bail!(
                 "Output directory does not exist: {}\n\n\
@@ -904,8 +1099,12 @@ fn deploy_wasm(
                 output_dir.display()
             );
         }
-        println!("✓ Using pre-packaged files from: {}", output_dir.display());
-    }
+        println!(
+            "✓ Loading pre-packaged files from: {}",
+            output_dir.display()
+        );
+        load_site_from_directory(&output_dir)?
+    };
 
     // Execute deployment (async operations)
     let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
@@ -928,7 +1127,7 @@ fn deploy_wasm(
                 "Preview"
             }
         );
-        println!("  Source:       {}", output_dir.display());
+        println!("  Source:       Virtual (in-memory)");
         println!(
             "  Mode:         {}",
             if release { "Release" } else { "Debug" }
@@ -937,7 +1136,7 @@ fn deploy_wasm(
         println!();
 
         // Execute deployment
-        deploy_to_cloudflare(&output_dir, project_name, &branch, &api_token, &account_id).await?;
+        deploy_to_cloudflare(&site, project_name, &branch, &api_token, &account_id).await?;
 
         // Success message
         println!("\n{}", "=".repeat(60));
@@ -960,14 +1159,14 @@ fn deploy_wasm(
 }
 
 async fn deploy_to_cloudflare(
-    output_dir: &Path,
+    site: &VirtualSite,
     project_name: &str,
     branch: &str,
     api_token: &str,
     account_id: &str,
 ) -> Result<()> {
     println!("Collecting and hashing files...");
-    let files = collect_files(output_dir)?;
+    let files = build_file_map(site);
     println!("✓ Found {} files", files.len());
 
     let client = reqwest::Client::new();
@@ -1071,24 +1270,26 @@ async fn deploy_to_cloudflare(
         let mut small_files = Vec::new();
         let mut large_files = Vec::new();
 
-        for (full_path, hash) in files.values() {
+        for (path, (content, hash)) in &files {
             if missing_set.contains(hash) {
-                let file_size = fs::metadata(full_path)
-                    .context(format!("Failed to get file size: {}", full_path.display()))?
-                    .len() as usize;
+                let file_size = content.len();
 
                 if file_size > MAX_BATCH_SIZE {
-                    large_files.push((full_path, hash, file_size));
+                    large_files.push((path, content, hash, file_size));
                 } else {
-                    let content = fs::read(full_path)
-                        .context(format!("Failed to read file: {}", full_path.display()))?;
-                    let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(content);
+
+                    // Get MIME type from virtual site
+                    let mime_type = site
+                        .get_file(path)
+                        .map(|vf| vf.mime_type.clone())
+                        .unwrap_or_else(|| "application/octet-stream".to_string());
 
                     small_files.push(UploadPayloadFile {
                         key: hash.clone(),
                         value: encoded,
                         metadata: FileMetadata {
-                            content_type: get_mime_type(full_path).to_string(),
+                            content_type: mime_type,
                         },
                         base64: true,
                     });
@@ -1129,21 +1330,20 @@ async fn deploy_to_cloudflare(
                 large_files.len()
             );
 
-            for (i, (full_path, hash, size)) in large_files.iter().enumerate() {
-                let filename = full_path
-                    .file_name()
-                    .expect("File path has a valid name")
-                    .to_string_lossy();
+            for (i, (path, content, hash, size)) in large_files.iter().enumerate() {
                 println!(
                     "    [{}/{}] {} ({:.1} MB)...",
                     i + 1,
                     large_files.len(),
-                    filename,
+                    path,
                     *size as f64 / 1_048_576.0
                 );
 
-                let content = fs::read(full_path)
-                    .context(format!("Failed to read file: {}", full_path.display()))?;
+                // Get MIME type from virtual site
+                let mime_type = site
+                    .get_file(path)
+                    .map(|vf| vf.mime_type.as_str())
+                    .unwrap_or("application/octet-stream");
 
                 // Try uploading with binary body instead of base64 JSON
                 let upload_url =
@@ -1152,8 +1352,8 @@ async fn deploy_to_cloudflare(
                 let upload_response = client
                     .put(&upload_url)
                     .header("Authorization", format!("Bearer {}", jwt))
-                    .header("Content-Type", get_mime_type(full_path))
-                    .body(content)
+                    .header("Content-Type", mime_type)
+                    .body((*content).clone())
                     .send()
                     .await;
 
@@ -1165,14 +1365,13 @@ async fn deploy_to_cloudflare(
                     }
                     _ => {
                         println!("      PUT failed, trying JSON upload...");
-                        let content = fs::read(full_path)?;
-                        let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(content);
 
                         let payload = vec![UploadPayloadFile {
                             key: (*hash).clone(),
                             value: encoded,
                             metadata: FileMetadata {
-                                content_type: get_mime_type(full_path).to_string(),
+                                content_type: mime_type.to_string(),
                             },
                             base64: true,
                         }];
@@ -1186,14 +1385,14 @@ async fn deploy_to_cloudflare(
                             .json(&payload)
                             .send()
                             .await
-                            .context(format!("Failed to upload large file: {}", filename))?;
+                            .context(format!("Failed to upload large file: {}", path))?;
 
                         if !resp.status().is_success() {
                             let status = resp.status();
                             let body = resp.text().await.unwrap_or_default();
                             bail!(
                                 "Failed to upload large file {} (status: {}): {}",
-                                filename,
+                                path,
                                 status,
                                 body
                             );
@@ -1240,7 +1439,7 @@ async fn deploy_to_cloudflare(
     // Build manifest - wrangler uses leading slashes!
     // But exclude special files like _headers, _redirects which must be uploaded as File objects
     let mut manifest_map = HashMap::new();
-    for (path, (_full_path, hash)) in &files {
+    for (path, (_content, hash)) in &files {
         // Skip special files that need to be uploaded directly
         if path == "_headers" || path == "_redirects" {
             continue;
@@ -1281,20 +1480,18 @@ async fn deploy_to_cloudflare(
     form = form.text("branch", branch.to_string());
 
     // Add special files as File objects after text fields
-    if let Some((full_path, _hash)) = files.get("_headers") {
-        let content = fs::read(full_path).context("Failed to read _headers")?;
+    if let Some((content, _hash)) = files.get("_headers") {
         form = form.part(
             "_headers",
-            reqwest::multipart::Part::bytes(content).file_name("_headers"),
+            reqwest::multipart::Part::bytes(content.clone()).file_name("_headers"),
         );
         println!("  ✓ Including _headers file");
     }
 
-    if let Some((full_path, _hash)) = files.get("_redirects") {
-        let content = fs::read(full_path).context("Failed to read _redirects")?;
+    if let Some((content, _hash)) = files.get("_redirects") {
         form = form.part(
             "_redirects",
-            reqwest::multipart::Part::bytes(content).file_name("_redirects"),
+            reqwest::multipart::Part::bytes(content.clone()).file_name("_redirects"),
         );
         println!("  ✓ Including _redirects file");
     }
@@ -1326,4 +1523,350 @@ async fn deploy_to_cloudflare(
     println!("✓ Deployment created: {}", deployment.result.id);
 
     Ok(())
+}
+
+fn promote_deployment(
+    deployment_id: Option<String>,
+    latest: bool,
+    project_name: &str,
+    production_branch: &str,
+) -> Result<()> {
+    println!("\n{}", "=".repeat(60));
+    println!("Promote Deployment to Production");
+    println!("{}", "=".repeat(60));
+
+    // Get credentials
+    let api_token = check_cloudflare_credentials()?;
+
+    let runtime = tokio::runtime::Runtime::new()?;
+
+    runtime.block_on(async {
+        let account_id = get_account_id(&api_token).await?;
+        let client = reqwest::Client::new();
+
+        // Determine which deployment to promote
+        let deployment_id = if latest {
+            println!("Finding latest preview deployment from current branch...");
+            let current_branch = determine_branch(None)?;
+
+            // Fetch deployments
+            let url = format!(
+                "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments",
+                account_id, project_name
+            );
+
+            let response = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", api_token))
+                .send()
+                .await
+                .context("Failed to fetch deployments")?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                bail!("Failed to fetch deployments (status: {}): {}", status, body);
+            }
+
+            let deployments: DeploymentsListResponse = response
+                .json()
+                .await
+                .context("Failed to parse deployments")?;
+
+            // Find latest preview deployment from current branch
+            let latest_deployment = deployments
+                .result
+                .iter()
+                .filter(|d| d.environment == "preview")
+                .find(|d| {
+                    d.aliases
+                        .as_ref()
+                        .map(|aliases| {
+                            aliases
+                                .iter()
+                                .any(|alias| alias.starts_with(&format!("{}.", current_branch)))
+                        })
+                        .unwrap_or(false)
+                });
+
+            match latest_deployment {
+                Some(dep) => {
+                    println!("✓ Found: {} ({})", dep.short_id, dep.created_on);
+                    dep.id.clone()
+                }
+                None => {
+                    bail!(
+                        "No preview deployments found for branch '{}'\n\
+                         Deploy to preview first: cargo xtask wasm deploy",
+                        current_branch
+                    );
+                }
+            }
+        } else if let Some(id) = deployment_id {
+            id
+        } else {
+            bail!("Either provide a deployment ID or use --latest flag");
+        };
+
+        // Fetch deployment details
+        println!("\nFetching deployment details...");
+        let detail_url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}",
+            account_id, project_name, deployment_id
+        );
+
+        let response = client
+            .get(&detail_url)
+            .header("Authorization", format!("Bearer {}", api_token))
+            .send()
+            .await
+            .context("Failed to fetch deployment details")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Failed to fetch deployment details (status: {}): {}\n\
+                 Check that the deployment ID is correct",
+                status,
+                body
+            );
+        }
+
+        let deployment: DeploymentDetailResponse = response
+            .json()
+            .await
+            .context("Failed to parse deployment details")?;
+
+        let dep = deployment.result;
+
+        if dep.environment == "production" {
+            bail!(
+                "Deployment {} is already in production\n\
+                 Use 'cargo xtask wasm rollback' to rollback production instead",
+                dep.short_id
+            );
+        }
+
+        println!("✓ Deployment Details:");
+        println!("  ID:          {}", dep.short_id);
+        println!("  Environment: {}", dep.environment);
+        println!("  Branch:      {}", dep.deployment_trigger.metadata.branch);
+        println!(
+            "  Commit:      {}",
+            dep.deployment_trigger.metadata.commit_hash
+        );
+        println!("  Status:      {}", dep.latest_stage.status);
+        println!("  URL:         {}", dep.url);
+
+        if dep.latest_stage.status != "success" {
+            bail!(
+                "Cannot promote deployment with status '{}'\n\
+                 Only successful deployments can be promoted",
+                dep.latest_stage.status
+            );
+        }
+
+        println!("\n{}", "=".repeat(60));
+        println!("Promoting to Production");
+        println!("{}", "=".repeat(60));
+        println!("  Target branch: {}", production_branch);
+        println!(
+            "  Commit:        {}",
+            dep.deployment_trigger.metadata.commit_hash
+        );
+        println!("{}", "=".repeat(60));
+        println!();
+
+        Ok(())
+    })?;
+
+    // Use the existing deploy command to deploy to production
+    println!("Deploying to production branch...");
+    deploy_wasm(
+        Some(production_branch.to_string()),
+        project_name,
+        "target/wasm-site",
+        false, // don't skip package
+        true,  // always use release mode for production
+    )?;
+
+    println!("\n{}", "=".repeat(60));
+    println!("✓ Promotion Complete");
+    println!("{}", "=".repeat(60));
+    println!("  Production URL: https://{}.pages.dev", project_name);
+    println!("{}", "=".repeat(60));
+    println!();
+
+    Ok(())
+}
+
+fn rollback_deployment(deployment_id: Option<String>, project_name: &str, yes: bool) -> Result<()> {
+    println!("\n{}", "=".repeat(60));
+    println!("Rollback Production Deployment");
+    println!("{}", "=".repeat(60));
+
+    let api_token = check_cloudflare_credentials()?;
+    let runtime = tokio::runtime::Runtime::new()?;
+
+    runtime.block_on(async {
+        let account_id = get_account_id(&api_token).await?;
+        let client = reqwest::Client::new();
+
+        // If no deployment ID provided, show recent production deployments
+        let deployment_id = if let Some(id) = deployment_id {
+            id
+        } else {
+            println!("\nFetching recent production deployments...");
+            let url = format!(
+                "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments",
+                account_id, project_name
+            );
+
+            let response = client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", api_token))
+                .send()
+                .await
+                .context("Failed to fetch deployments")?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                bail!("Failed to fetch deployments (status: {}): {}", status, body);
+            }
+
+            let deployments: DeploymentsListResponse = response
+                .json()
+                .await
+                .context("Failed to parse deployments")?;
+
+            // Filter and sort production deployments
+            let mut production: Vec<_> = deployments
+                .result
+                .into_iter()
+                .filter(|d| d.environment == "production")
+                .collect();
+            production.sort_by(|a, b| b.created_on.cmp(&a.created_on));
+
+            if production.is_empty() {
+                bail!("No production deployments found");
+            }
+
+            println!("\nRecent production deployments:");
+            println!("{}", "-".repeat(80));
+            for (i, dep) in production.iter().take(10).enumerate() {
+                let marker = if i == 0 { "→ CURRENT" } else { "" };
+                let alias = dep
+                    .aliases
+                    .as_ref()
+                    .and_then(|a| a.first())
+                    .map(|s| s.as_str())
+                    .unwrap_or("no alias");
+                println!(
+                    "  {}. {} | {} | {} {}",
+                    i + 1,
+                    dep.short_id,
+                    dep.created_on,
+                    alias,
+                    marker
+                );
+            }
+            println!("{}", "-".repeat(80));
+            println!("\nTo rollback, run: cargo xtask wasm rollback <deployment_id>");
+            return Ok(());
+        };
+
+        // Fetch deployment details to confirm
+        println!("\nFetching deployment details...");
+        let detail_url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}",
+            account_id, project_name, deployment_id
+        );
+
+        let response = client
+            .get(&detail_url)
+            .header("Authorization", format!("Bearer {}", api_token))
+            .send()
+            .await
+            .context("Failed to fetch deployment details")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Failed to fetch deployment details (status: {}): {}",
+                status,
+                body
+            );
+        }
+
+        let deployment: DeploymentDetailResponse = response
+            .json()
+            .await
+            .context("Failed to parse deployment details")?;
+
+        let dep = deployment.result;
+
+        if dep.environment != "production" {
+            bail!(
+                "Deployment {} is not a production deployment\n\
+                 Rollback only works with production deployments",
+                dep.short_id
+            );
+        }
+
+        println!("✓ Rollback Target:");
+        println!("  ID:      {}", dep.short_id);
+        println!("  Created: {}", dep.created_on);
+        println!("  Commit:  {}", dep.deployment_trigger.metadata.commit_hash);
+        println!("  Message: {}", dep.deployment_trigger.metadata.commit_message);
+        println!();
+
+        if !yes {
+            println!("⚠️  This will rollback production to deployment {}", dep.short_id);
+            println!("   Run with --yes to confirm");
+            return Ok(());
+        }
+
+        // Execute rollback
+        println!("Rolling back production...");
+        let rollback_url = format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}/deployments/{}/rollback",
+            account_id, project_name, deployment_id
+        );
+
+        let response = client
+            .post(&rollback_url)
+            .header("Authorization", format!("Bearer {}", api_token))
+            .send()
+            .await
+            .context("Failed to rollback deployment")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            bail!(
+                "Failed to rollback deployment (status: {}): {}\n\
+                 Note: You can only rollback to previous production deployments",
+                status,
+                body
+            );
+        }
+
+        let rollback: RollbackResponse = response
+            .json()
+            .await
+            .context("Failed to parse rollback response")?;
+
+        println!("\n{}", "=".repeat(60));
+        println!("✓ Rollback Complete");
+        println!("{}", "=".repeat(60));
+        println!("  Deployment ID: {}", rollback.result.id);
+        println!("  URL:           {}", rollback.result.url);
+        println!("{}", "=".repeat(60));
+        println!();
+
+        Ok(())
+    })
 }
