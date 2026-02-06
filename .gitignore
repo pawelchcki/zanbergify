@@ -3,6 +3,10 @@ target/
 pkg/
 dist/
 
+# Node.js / Cloudflare
+node_modules/
+.wrangler/
+
 # Large ONNX models should not be committed
 **/*.onnx
 

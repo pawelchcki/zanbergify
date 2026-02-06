@@ -311,13 +311,13 @@
             <div class="control-group full-width">
                 <label>
                     <input type="checkbox" id="enableRembg" style="width: auto; cursor: pointer;">
-                    <span style="font-weight: normal;">Enable Background Removal (U2Net - Fast & Accurate)</span>
+                    <span style="font-weight: normal;">Enable Background Removal (RMBG-1.4 / U2Net)</span>
                 </label>
             </div>
 
             <div id="rembgControls" style="display: none;">
                 <div id="modelStatus" style="padding: 12px; background: #580437; color: white; border-radius: 4px; font-size: 14px; text-align: center; cursor: pointer; transition: all 0.2s;">
-                    Click to load U2Net model (320x320, fast processing)
+                    Click to load model (RMBG-1.4 with U2Net fallback)
                 </div>
 
                 <div class="control-group" style="margin-top: 15px;">
@@ -412,9 +412,9 @@
                 <li>Download the result using the download button</li>
             </ol>
             <p style="margin-top: 10px;">
-                <strong>Background Removal:</strong> When enabled, uses the bundled BiRefNet model (1024x1024, 214 MB)
-                for high-quality background removal. Processing happens in your browser using ONNX Runtime with WebGPU acceleration.
-                The model is cached after first load for instant subsequent use.
+                <strong>Background Removal:</strong> When enabled, tries to load BRIA RMBG-1.4 model (1024x1024, 176 MB, state-of-the-art quality).
+                If unavailable or fails, automatically falls back to U2Net model (320x320, faster). Processing happens in your browser using ONNX Runtime.
+                Models are cached after first load for instant subsequent use.
             </p>
             <p style="margin-top: 10px;">
                 <strong>Privacy:</strong> All processing happens in your browser using WebAssembly and ONNX Runtime.
@@ -427,9 +427,7 @@
         </div>
     </div>
 
-    <!-- ONNX Runtime Web (loaded globally) - Using version 1.20.0 for stability -->
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/ort.min.js"></script>
-
+    <!-- Load index.js as module (will import ONNX Runtime with WebGPU support) -->
     <script type="module" src="./index.js"></script>
 </body>
 </html>
