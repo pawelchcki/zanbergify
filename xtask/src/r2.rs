@@ -237,13 +237,17 @@ async fn create_r2_credentials(config: &R2Config) -> Result<(String, String)> {
     // Access Key ID is the token ID
     let access_key_id = result.result.id;
 
-    // Secret Access Key is SHA-256 hash of the API token
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(config.api_token.as_bytes());
-    let secret_access_key = format!("{:x}", hasher.finalize());
+    // Secret Access Key derived using HMAC-SHA256 with fixed salt
+    // More secure than raw SHA-256 as it uses a keyed hash function
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
 
-    println!("  ✓ R2 credentials derived from API token");
+    let mut mac = Hmac::<Sha256>::new_from_slice(b"zanbergify-r2-secret-key-salt")
+        .expect("HMAC can take key of any size");
+    mac.update(config.api_token.as_bytes());
+    let secret_access_key = format!("{:x}", mac.finalize().into_bytes());
+
+    println!("  ✓ R2 credentials derived from API token (HMAC-SHA256)");
     Ok((access_key_id, secret_access_key))
 }
 

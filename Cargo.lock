@@ -3971,6 +3971,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "hex",
+ "hmac",
  "indicatif",
  "md5",
  "reqwest",

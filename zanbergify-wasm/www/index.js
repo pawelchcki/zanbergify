@@ -628,11 +628,18 @@ function resizeMask(maskData, maskWidth, maskHeight, targetWidth, targetHeight) 
 
 // Calculate mask threshold ratio from slider value
 function getMaskThresholdRatio() {
+    // Slider configuration: range 30-80 maps to threshold ratio 0.30-0.80
+    const SLIDER_MIN = 30;
+    const SLIDER_RANGE = 50;
+    const RATIO_MIN = 0.30;
+    const RATIO_RANGE = 0.50;
+    const CURVE_EXPONENT = 1.5;  // Exponential curve for smoother control
+
     const thresholdSlider = document.getElementById('maskThreshold');
     const sliderValue = thresholdSlider ? parseInt(thresholdSlider.value) : 50;
-    const normalized = (sliderValue - 30) / 50; // Normalize to 0-1
-    const curved = Math.pow(normalized, 1.5); // Apply exponential curve
-    return 0.30 + (curved * 0.50); // Map to 0.30-0.80
+    const normalized = (sliderValue - SLIDER_MIN) / SLIDER_RANGE;
+    const curved = Math.pow(normalized, CURVE_EXPONENT);
+    return RATIO_MIN + (curved * RATIO_RANGE);
 }
 
 // Apply mask to image (create RGBA with alpha channel)
