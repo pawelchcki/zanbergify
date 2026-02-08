@@ -104,7 +104,7 @@ flutter_zanbergify/
 ├── ios/                           # iOS + Cargokit
 ├── linux/                         # Linux + Cargokit
 ├── macos/                         # macOS + Cargokit
-└── cargokit/                      # Git submodule
+└── cargokit/                      # Vendored (from github.com/irondash/cargokit)
 
 ../../rust/zanbergify-core/        # Core Rust library
 ├── src/
