@@ -1,0 +1,10 @@
+[package]
+name = "razemify-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+razemify-core = { path = "../razemify-core", features = ["rembg"] }
+clap = { version = "4", features = ["derive"] }
+rayon = "1.10"
+image = "0.25"

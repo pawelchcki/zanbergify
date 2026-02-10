@@ -1,7 +1,7 @@
-name = "zanbergify-models-cdn"
+name = "razemify-models-cdn"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
 [[r2_buckets]]
 binding = "MODELS"
-bucket_name = "zanbergify-models"
+bucket_name = "razemify-models"

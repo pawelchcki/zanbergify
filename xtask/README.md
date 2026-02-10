@@ -23,10 +23,10 @@ cargo xtask models bundle <name>           # Copy to WASM assets
 
 ## Cache
 
-Models cached at `~/.zanbergify/models/` (primary) or `~/.u2net/` (legacy).
+Models cached at `~/.razemify/models/` (primary) or `~/.u2net/` (legacy).
 
 Search priority:
-1. Explicit path / env var (`ZANBERGIFY_MODEL_PATH`)
+1. Explicit path / env var (`RAZEMIFY_MODEL_PATH`)
 2. xtask cache
 3. Legacy cache
 4. Current directory

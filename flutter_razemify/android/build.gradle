@@ -1,0 +1,235 @@
+group = "com.example.flutter_razemify"
+version = "1.0-SNAPSHOT"
+
+buildscript {
+    ext.kotlin_version = "1.8.22"
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.4.1")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+// Detect optimized build (release or profile) once for reuse across script
+// Profile mode should use optimized Rust code for accurate performance testing
+ext.isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("Release") || it.contains("Profile")
+}
+
+// Detect host OS and architecture once for reuse across NDK linker configuration
+def hostOs = System.getProperty('os.name').toLowerCase()
+def osArch = System.getProperty('os.arch').toLowerCase()
+ext.hostArchForNdk = "linux-x86_64"
+if (hostOs.contains("mac")) {
+    // Support both Intel and Apple Silicon Macs
+    ext.hostArchForNdk = (osArch == "aarch64" || osArch == "arm64") ? "darwin-aarch64" : "darwin-x86_64"
+} else if (hostOs.contains("linux") && (osArch == "aarch64" || osArch == "arm64")) {
+    // Support ARM-based Linux (AWS Graviton, Raspberry Pi, etc.)
+    ext.hostArchForNdk = "linux-aarch64"
+} else if (hostOs.contains("windows")) {
+    ext.hostArchForNdk = "windows-x86_64"
+}
+
+// Minimum size threshold for Rust library sanity check (1 KB)
+ext.MIN_RUST_LIB_SIZE_BYTES = 1024
+
+// Rust project directory path (relative to android plugin directory)
+ext.rustProjectDir = file("${projectDir}/../rust")
+
+android {
+    namespace = "com.example.flutter_razemify"
+
+    compileSdk = 34
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_11
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        test.java.srcDirs += "src/test/kotlin"
+    }
+
+    defaultConfig {
+        minSdk = 21
+
+        // Control which ABIs to build
+        ndk {
+            // Debug: only arm64 (fast iteration)
+            // Release: all ABIs (full compatibility)
+            if (isReleaseBuild) {
+                abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+            } else {
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+
+    dependencies {
+        testImplementation("org.jetbrains.kotlin:kotlin-test")
+        testImplementation("org.mockito:mockito-core:5.0.0")
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+               events "passed", "skipped", "failed", "standardOut", "standardError"
+               outputs.upToDateWhen {false}
+               showStandardStreams = true
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+// Helper function to create Rust build tasks for different architectures
+def createRustBuildTask(String taskName, String rustTarget, String androidAbi) {
+    tasks.register(taskName, Exec) {
+        def profile = isReleaseBuild ? "release" : "debug"
+
+        def ndkDir = android.ndkDirectory.absolutePath
+        def apiLevel = android.defaultConfig.minSdk
+        def hostArch = project.ext.hostArchForNdk
+
+        def linker = "${ndkDir}/toolchains/llvm/prebuilt/${hostArch}/bin/${rustTarget}${apiLevel}-clang"
+        if (!file(linker).exists()) {
+            linker = "${ndkDir}/toolchains/llvm/prebuilt/${hostArch}/bin/${rustTarget}-clang"
+            if (!file(linker).exists()) {
+                throw new GradleException(
+                    "Android NDK linker not found for target ${rustTarget}!\n" +
+                    "Expected one of:\n" +
+                    "  - ${ndkDir}/toolchains/llvm/prebuilt/${hostArch}/bin/${rustTarget}${apiLevel}-clang\n" +
+                    "  - ${ndkDir}/toolchains/llvm/prebuilt/${hostArch}/bin/${rustTarget}-clang\n\n" +
+                    "Possible solutions:\n" +
+                    "1. Install Android NDK via Android Studio SDK Manager\n" +
+                    "2. Set ANDROID_NDK_HOME environment variable\n" +
+                    "3. Verify NDK version is compatible (recommended: 25.x or higher)\n" +
+                    "4. Check that NDK toolchain is complete (reinstall if corrupted)"
+                )
+            }
+        }
+
+        project.logger.lifecycle "Using NDK linker: ${linker}"
+
+        // Set up CC and AR for build scripts that compile C/C++ code
+        def toolchainBin = new File(linker).parent
+        def ar = new File(toolchainBin, "llvm-ar")
+        if (!ar.exists()) {
+            throw new GradleException(
+                "Android NDK archiver 'llvm-ar' not found in ${toolchainBin}\n" +
+                "This indicates an incomplete NDK installation."
+            )
+        }
+
+        // Configure environment for cargo and build scripts
+        def targetEnvPrefix = rustTarget.toUpperCase().replace('-', '_')
+        def cargoLinkerEnvVar = "CARGO_TARGET_${targetEnvPrefix}_LINKER"
+        workingDir project.ext.rustProjectDir
+        environment = [
+            (cargoLinkerEnvVar): linker,
+            ("CC_${targetEnvPrefix}"): linker,
+            ("AR_${targetEnvPrefix}"): ar.absolutePath
+        ]
+
+        // Ensure cargo failures fail the build
+        ignoreExitValue = false
+
+        if (profile == "release") {
+            commandLine 'cargo', 'build', '--release', '--target', rustTarget
+        } else {
+            commandLine 'cargo', 'build', '--target', rustTarget
+        }
+
+        // Capture output for debugging
+        standardOutput = System.out
+        errorOutput = System.err
+
+        doFirst {
+            project.logger.lifecycle "Building Rust library for ${rustTarget} (${profile} profile)..."
+        }
+
+        doLast {
+            // Cargo builds to workspace root target directory, not rust subdirectory
+            def rustLib = file("${projectDir}/../../target/${rustTarget}/${profile}/libflutter_razemify.so")
+
+            // CRITICAL: Verify the library was actually built
+            if (!rustLib.exists()) {
+                throw new GradleException(
+                    "Rust build did not produce expected library: ${rustLib}\n" +
+                    "This indicates the cargo build failed silently. Check:\n" +
+                    "1. Rust toolchain installed (rustup)\n" +
+                    "2. Target installed: rustup target add ${rustTarget}\n" +
+                    "3. NDK properly configured\n" +
+                    "4. Cargo.toml dependencies are valid"
+                )
+            }
+
+            // Verify library size is reasonable (not empty/corrupt)
+            if (rustLib.length() < project.ext.MIN_RUST_LIB_SIZE_BYTES) {
+                throw new GradleException(
+                    "Rust library file is suspiciously small (${rustLib.length()} bytes): ${rustLib}\n" +
+                    "This suggests a corrupt or incomplete build."
+                )
+            }
+
+            def outputDir = file("${projectDir}/src/main/jniLibs/${androidAbi}")
+            outputDir.mkdirs()
+
+            try {
+                copy {
+                    from rustLib
+                    into outputDir
+                }
+                project.logger.lifecycle "✓ Built and copied ${rustLib.name} (${rustLib.length()} bytes) to ${outputDir}"
+            } catch (Exception e) {
+                throw new GradleException(
+                    "Failed to copy Rust library to jniLibs: ${e.message}\n" +
+                    "Check file permissions and disk space."
+                )
+            }
+        }
+    }
+}
+
+// Create build tasks for each architecture
+createRustBuildTask('buildRustArm64', 'aarch64-linux-android', 'arm64-v8a')
+createRustBuildTask('buildRustArmv7', 'armv7-linux-androideabi', 'armeabi-v7a')
+createRustBuildTask('buildRustX86', 'i686-linux-android', 'x86')
+createRustBuildTask('buildRustX86_64', 'x86_64-linux-android', 'x86_64')
+
+// Aggregate task that builds for appropriate architectures
+task buildRust {
+    dependsOn buildRustArm64
+    if (isReleaseBuild) {
+        dependsOn buildRustArmv7, buildRustX86, buildRustX86_64
+    }
+}
+
+preBuild.dependsOn buildRust
+

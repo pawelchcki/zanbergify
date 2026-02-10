@@ -125,7 +125,7 @@ pub enum ModelsSubCmd {
         /// Model name to bundle
         name: String,
         /// Destination directory
-        #[arg(long, default_value = "zanbergify-wasm/www/models")]
+        #[arg(long, default_value = "razemify-wasm/www/models")]
         dest: String,
     },
     /// Upload model to Cloudflare R2
@@ -133,7 +133,7 @@ pub enum ModelsSubCmd {
         /// Model name to upload
         name: String,
         /// R2 bucket name
-        #[arg(long, default_value = "zanbergify-models")]
+        #[arg(long, default_value = "razemify-models")]
         bucket: String,
     },
 }
