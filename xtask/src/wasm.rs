@@ -103,7 +103,7 @@ pub enum WasmSubCmd {
         #[arg(long, short)]
         branch: Option<String>,
         /// Cloudflare Pages project name
-        #[arg(long, default_value = "zanbergify-wasm")]
+        #[arg(long, default_value = "razemify-wasm")]
         project_name: String,
         /// Output directory to deploy
         #[arg(long, default_value = "target/wasm-site")]
@@ -118,7 +118,7 @@ pub enum WasmSubCmd {
     /// Clean up old deployments
     Cleanup {
         /// Cloudflare Pages project name
-        #[arg(long, default_value = "zanbergify-wasm")]
+        #[arg(long, default_value = "razemify-wasm")]
         project_name: String,
         /// Keep this many recent deployments per environment (production/preview)
         #[arg(long, default_value = "5")]
@@ -135,7 +135,7 @@ pub enum WasmSubCmd {
         #[arg(long)]
         latest: bool,
         /// Cloudflare Pages project name
-        #[arg(long, default_value = "zanbergify-wasm")]
+        #[arg(long, default_value = "razemify-wasm")]
         project_name: String,
         /// Production branch name
         #[arg(long, default_value = "main")]
@@ -146,7 +146,7 @@ pub enum WasmSubCmd {
         /// Deployment ID to rollback to (shows list if not provided)
         deployment_id: Option<String>,
         /// Cloudflare Pages project name
-        #[arg(long, default_value = "zanbergify-wasm")]
+        #[arg(long, default_value = "razemify-wasm")]
         project_name: String,
         /// Skip confirmation prompt
         #[arg(long, short)]
@@ -193,11 +193,11 @@ impl WasmCmd {
 
 fn build_wasm(release: bool) -> Result<()> {
     let project_root = project_root();
-    let wasm_dir = project_root.join("zanbergify-wasm");
+    let wasm_dir = project_root.join("razemify-wasm");
 
     if !wasm_dir.exists() {
         bail!(
-            "zanbergify-wasm directory not found at {}",
+            "razemify-wasm directory not found at {}",
             wasm_dir.display()
         );
     }
@@ -238,7 +238,7 @@ fn build_wasm(release: bool) -> Result<()> {
 
 fn build_virtual_site(release: bool) -> Result<VirtualSite> {
     let project_root = project_root();
-    let wasm_dir = project_root.join("zanbergify-wasm");
+    let wasm_dir = project_root.join("razemify-wasm");
     let pkg_dir = wasm_dir.join("pkg");
     let www_dir = wasm_dir.join("www");
 
@@ -259,7 +259,7 @@ fn build_virtual_site(release: bool) -> Result<VirtualSite> {
     load_pkg_directory(&pkg_dir, &mut site)?;
 
     // Validate critical files
-    let required = ["index.html", "index.js", "pkg/zanbergify_wasm_bg.wasm"];
+    let required = ["index.html", "index.js", "pkg/razemify_wasm_bg.wasm"];
     for file in required {
         if site.get_file(file).is_none() {
             bail!("Required file missing: {}", file);
@@ -788,7 +788,7 @@ fn package_wasm(output: &str, release: bool) -> Result<()> {
     println!("{}", "=".repeat(60));
     println!("\nTo deploy to Cloudflare Pages:");
     println!(
-        "  npx wrangler pages deploy {} --project-name zanbergify",
+        "  npx wrangler pages deploy {} --project-name razemify",
         output_dir.display()
     );
     println!();

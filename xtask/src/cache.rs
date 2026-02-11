@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 pub fn get_cache_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
-    Ok(home.join(".zanbergify").join("models"))
+    Ok(home.join(".razemify").join("models"))
 }
 
 pub fn list_cached_models() -> Result<Vec<(String, u64)>> {

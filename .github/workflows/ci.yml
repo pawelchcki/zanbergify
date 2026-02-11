@@ -83,4 +83,4 @@ jobs:
 
       - name: Build WASM package
         run: wasm-pack build --target web
-        working-directory: zanbergify-wasm
+        working-directory: razemify-wasm

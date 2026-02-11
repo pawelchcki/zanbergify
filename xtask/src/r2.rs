@@ -242,7 +242,7 @@ async fn create_r2_credentials(config: &R2Config) -> Result<(String, String)> {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
-    let mut mac = Hmac::<Sha256>::new_from_slice(b"zanbergify-r2-secret-key-salt")
+    let mut mac = Hmac::<Sha256>::new_from_slice(b"razemify-r2-secret-key-salt")
         .expect("HMAC can take key of any size");
     mac.update(config.api_token.as_bytes());
     let secret_access_key = format!("{:x}", mac.finalize().into_bytes());
