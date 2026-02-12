@@ -113,7 +113,22 @@ def createRustBuildTask(String taskName, String rustTarget, String androidAbi) {
     tasks.register(taskName, Exec) {
         def profile = isReleaseBuild ? "release" : "debug"
 
-        def ndkDir = android.ndkDirectory.absolutePath
+        // Find NDK: prefer android.ndkDirectory, fall back to newest installed NDK
+        def ndkDir
+        try {
+            ndkDir = android.ndkDirectory.absolutePath
+        } catch (Exception e) {
+            def ndkRoot = new File("${android.sdkDirectory}/ndk")
+            if (ndkRoot.exists()) {
+                def ndkVersions = ndkRoot.listFiles()?.findAll { it.isDirectory() }?.sort { it.name }
+                if (ndkVersions) {
+                    ndkDir = ndkVersions.last().absolutePath
+                }
+            }
+            if (!ndkDir) {
+                throw new GradleException("NDK not found. Install via Android SDK Manager or set ANDROID_NDK_HOME.")
+            }
+        }
         def apiLevel = android.defaultConfig.minSdk
         def hostArch = project.ext.hostArchForNdk
 
