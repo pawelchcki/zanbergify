@@ -152,9 +152,9 @@ def createRustBuildTask(String taskName, String rustTarget, String androidAbi) {
         def cargoLinkerEnvVar = "CARGO_TARGET_${targetEnvPrefix}_LINKER"
         workingDir project.ext.rustProjectDir
         environment = [
-            (cargoLinkerEnvVar): linker,
-            ("CC_${targetEnvPrefix}"): linker,
-            ("AR_${targetEnvPrefix}"): ar.absolutePath
+            (cargoLinkerEnvVar.toString()): linker,
+            ("CC_${targetEnvPrefix}".toString()): linker,
+            ("AR_${targetEnvPrefix}".toString()): ar.absolutePath
         ]
 
         // Ensure cargo failures fail the build
