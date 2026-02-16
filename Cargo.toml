@@ -7,4 +7,3 @@ opt-level = "s"       # Nearly as small as "z" but compiles faster
 lto = "thin"          # ~95% of fat LTO benefit at 3-5x faster link time
 codegen-units = 16    # Enables parallel codegen within a single cargo build
 strip = true          # Strip debug symbols from release binaries
-panic = "abort"       # Smaller binaries, faster unwinding removal
