@@ -9,7 +9,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-  CARGO_INCREMENTAL: 0
 
 jobs:
   format:
@@ -36,6 +35,8 @@ jobs:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
 
       - name: Run clippy
         run: cargo clippy --all-targets --workspace -- -D warnings
@@ -49,6 +50,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
 
       - name: Run tests
         run: cargo test --workspace
@@ -62,6 +65,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
 
       - name: Build all crates
         run: cargo build --workspace --release
@@ -84,3 +89,33 @@ jobs:
       - name: Build WASM package
         run: wasm-pack build --target web
         working-directory: razemify-wasm
+
+  android:
+    name: Android Cross-Compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
+
+      - name: Set up Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.0.12077973"
+
+      - name: Build for arm64 (debug)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: |
+          NDK_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${NDK_BIN}/aarch64-linux-android21-clang"
+          export CC_aarch64_linux_android="${NDK_BIN}/aarch64-linux-android21-clang"
+          export AR_aarch64_linux_android="${NDK_BIN}/llvm-ar"
+          cargo build -p flutter_razemify --target aarch64-linux-android

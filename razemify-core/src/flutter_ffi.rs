@@ -109,9 +109,9 @@ pub unsafe extern "C" fn razemify_get_output_size(
     let input_slice = unsafe { std::slice::from_raw_parts(input_data, input_len) };
     let img = match image::load_from_memory(input_slice) {
         Ok(img) => img,
-        Err(e) => {
+        Err(_e) => {
             #[cfg(debug_assertions)]
-            eprintln!("razemify_get_output_size failed to decode image: {:?}", e);
+            eprintln!("razemify_get_output_size failed to decode image: {:?}", _e);
             return ERROR_IMAGE_DECODE_FAILED; // Failed to decode image (consistent with razemify_process_bytes)
         }
     };

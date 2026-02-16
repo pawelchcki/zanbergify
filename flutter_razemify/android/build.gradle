@@ -113,6 +113,16 @@ def createRustBuildTask(String taskName, String rustTarget, String androidAbi) {
     tasks.register(taskName, Exec) {
         def profile = isReleaseBuild ? "release" : "debug"
 
+        // Declare inputs so Gradle can skip Rust builds when sources haven't changed
+        inputs.dir("${projectDir}/../rust")
+        inputs.dir("${projectDir}/../../razemify-core/src")
+        inputs.file("${projectDir}/../../Cargo.toml")
+        inputs.file("${projectDir}/../../Cargo.lock")
+        inputs.property("profile", profile)
+
+        // Declare outputs: the built .so file
+        outputs.file("${projectDir}/src/main/jniLibs/${androidAbi}/libflutter_razemify.so")
+
         // Find NDK: prefer android.ndkDirectory, fall back to newest installed NDK
         def ndkDir
         try {
